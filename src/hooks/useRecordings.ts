@@ -1,5 +1,5 @@
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { RecordingEvent } from "@/types";
 
 // Sample data for initial state
@@ -69,29 +69,29 @@ export function useRecordings() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Simulate loading recordings from API
-  useEffect(() => {
-    const loadRecordings = async () => {
-      setLoading(true);
-      setError(null);
-      
-      try {
-        // In a real app, this would fetch from an API
-        // Simulating a delay to mimic API call
-        await new Promise(resolve => setTimeout(resolve, 1200));
-        
-        // For now, just use our initial data
-        setRecordings(initialRecordings);
-      } catch (err) {
-        setError("Failed to load recordings");
-        console.error(err);
-      } finally {
-        setLoading(false);
-      }
-    };
+  const loadRecordings = useCallback(async () => {
+    setLoading(true);
+    setError(null);
     
-    loadRecordings();
+    try {
+      // In a real app, this would fetch from an API
+      // Simulating a delay to mimic API call
+      await new Promise(resolve => setTimeout(resolve, 1200));
+      
+      // For now, just use our initial data
+      setRecordings(initialRecordings);
+    } catch (err) {
+      setError("Failed to load recordings");
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
   }, []);
+
+  // Simulate loading recordings from API on initial mount
+  useEffect(() => {
+    loadRecordings();
+  }, [loadRecordings]);
 
   // Filter recordings by camera ID
   const getRecordingsForCamera = (cameraId: string) => {
@@ -145,6 +145,11 @@ export function useRecordings() {
     }
   };
 
+  // Add refetch method
+  const refetch = async () => {
+    return loadRecordings();
+  };
+
   return { 
     recordings,
     loading,
@@ -152,6 +157,7 @@ export function useRecordings() {
     getRecordingsForCamera,
     getRecordingsByDateRange,
     deleteRecording,
-    exportRecording
+    exportRecording,
+    refetch  // Add the refetch method to the return value
   };
 }

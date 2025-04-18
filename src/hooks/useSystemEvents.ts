@@ -1,5 +1,5 @@
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { SystemEvent } from "@/types";
 
 // Sample data for initial state
@@ -90,29 +90,29 @@ export function useSystemEvents() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Simulate loading events from API
-  useEffect(() => {
-    const loadEvents = async () => {
-      setLoading(true);
-      setError(null);
-      
-      try {
-        // In a real app, this would fetch from an API
-        // Simulating a delay to mimic API call
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        
-        // For now, just use our initial data
-        setEvents(initialEvents);
-      } catch (err) {
-        setError("Failed to load system events");
-        console.error(err);
-      } finally {
-        setLoading(false);
-      }
-    };
+  const loadEvents = useCallback(async () => {
+    setLoading(true);
+    setError(null);
     
-    loadEvents();
+    try {
+      // In a real app, this would fetch from an API
+      // Simulating a delay to mimic API call
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
+      // For now, just use our initial data
+      setEvents(initialEvents);
+    } catch (err) {
+      setError("Failed to load system events");
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
   }, []);
+
+  // Simulate loading events from API on initial mount
+  useEffect(() => {
+    loadEvents();
+  }, [loadEvents]);
 
   // Filter events by type
   const getEventsByType = (eventType: SystemEvent['eventType']) => {
@@ -148,6 +148,11 @@ export function useSystemEvents() {
     return newEvent;
   };
 
+  // Add refetch method
+  const refetch = async () => {
+    return loadEvents();
+  };
+
   return { 
     events,
     loading,
@@ -156,6 +161,7 @@ export function useSystemEvents() {
     getEventsForCamera,
     getEventsBySeverity,
     getEventsByDateRange,
-    addEvent
+    addEvent,
+    refetch  // Add the refetch method to the return value
   };
 }
