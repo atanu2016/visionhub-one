@@ -1,5 +1,5 @@
 
-import React, { useState } from "react";
+import React from "react";
 import { PageHeader } from "@/components/ui/page-header";
 import { StatusCard } from "@/components/dashboard/StatusCard";
 import { CameraCard } from "@/components/cameras/CameraCard";
@@ -14,6 +14,7 @@ import { CameraSettingsDialog } from "@/components/cameras/CameraSettingsDialog"
 import { AddCameraDialog } from "@/components/cameras/AddCameraDialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { format } from "date-fns";
+import { useState } from "react";
 
 const Dashboard = () => {
   const { cameras, loading: camerasLoading, updateCamera, deleteCamera, toggleRecording, discoverCameras } = useCameras();
