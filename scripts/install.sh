@@ -33,7 +33,7 @@ apt-get update
 apt-get upgrade -y
 
 echo "Installing required dependencies..."
-apt-get install -y curl wget gnupg2 ffmpeg sqlite3 build-essential git
+apt-get install -y curl wget gnupg2 ffmpeg sqlite3 build-essential git cifs-utils
 
 # Install Node.js 18.x
 echo "Installing Node.js..."
@@ -53,7 +53,9 @@ echo "Creating directories for recordings and logs..."
 mkdir -p /var/visionhub/recordings
 mkdir -p /var/visionhub/logs
 mkdir -p /var/visionhub/db
+mkdir -p /mnt/visionhub
 chmod -R 755 /var/visionhub
+chmod -R 755 /mnt/visionhub
 
 # Clone the repository
 echo "Cloning VisionHub One Sentinel repository..."
@@ -132,7 +134,12 @@ CREATE TABLE IF NOT EXISTS settings (
   motion_detection_enabled BOOLEAN NOT NULL,
   alert_email TEXT,
   alert_webhook_url TEXT,
-  retention_days INTEGER NOT NULL
+  retention_days INTEGER NOT NULL,
+  storage_type TEXT DEFAULT 'local',
+  nas_path TEXT,
+  nas_username TEXT,
+  nas_password TEXT,
+  nas_mounted BOOLEAN DEFAULT 0
 );
 
 -- Insert default settings
@@ -209,6 +216,7 @@ echo ""
 echo "* Service status: $(systemctl is-active visionhub.service)"
 echo "* Access the web interface at: http://$(hostname -I | awk '{print $1}'):3000"
 echo "* Recordings directory: /var/visionhub/recordings"
+echo "* NAS mount point: /mnt/visionhub"
 echo "* Database location: /var/visionhub/db/visionhub.db"
 echo "* To update: sudo $INSTALL_DIR/update.sh"
 echo ""

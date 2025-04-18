@@ -22,6 +22,8 @@ export interface Camera {
   isRecording: boolean;
 }
 
+export type StorageType = 'local' | 'nas';
+
 export interface SystemSettings {
   storageLocation: string;
   networkSubnet: string;
@@ -31,6 +33,12 @@ export interface SystemSettings {
   alertEmail?: string;
   alertWebhookUrl?: string;
   retentionDays: number;
+  // New NAS storage settings
+  storageType: StorageType;
+  nasPath?: string;
+  nasUsername?: string;
+  nasPassword?: string;
+  nasMounted?: boolean;
 }
 
 export interface RecordingEvent {

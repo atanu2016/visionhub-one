@@ -25,17 +25,20 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { SystemSettings } from "@/types";
-import { HelpCircle } from "lucide-react";
+import { SystemSettings, StorageType } from "@/types";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { HardDrive, HelpCircle, Server, Loader2, Check } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 
 interface SettingsFormProps {
   settings: SystemSettings;
-  onSave: (settings: SystemSettings) => void;
+  onSave: (settings: SystemSettings) => Promise<SystemSettings | null>;
 }
 
 export function SettingsForm({ settings, onSave }: SettingsFormProps) {
   const [formData, setFormData] = useState<SystemSettings>(settings);
   const [isSaving, setIsSaving] = useState(false);
+  const [isValidating, setIsValidating] = useState(false);
 
   // Handle form submission
   const handleSubmit = async (e: React.FormEvent) => {
@@ -43,9 +46,7 @@ export function SettingsForm({ settings, onSave }: SettingsFormProps) {
     setIsSaving(true);
     
     try {
-      // In a real app, this would save to a backend API
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      onSave(formData);
+      await onSave(formData);
     } catch (error) {
       console.error("Error saving settings:", error);
     } finally {
@@ -61,44 +62,172 @@ export function SettingsForm({ settings, onSave }: SettingsFormProps) {
     });
   };
 
+  // Validate NAS connection
+  const validateNasConnection = async () => {
+    if (!formData.nasPath) {
+      return;
+    }
+    
+    setIsValidating(true);
+    
+    try {
+      // In a real app, this would validate via the API
+      await fetch('/api/settings/nas/validate', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          path: formData.nasPath,
+          username: formData.nasUsername,
+          password: formData.nasPassword,
+        }),
+      });
+    } catch (error) {
+      console.error("Error validating NAS connection:", error);
+    } finally {
+      setIsValidating(false);
+    }
+  };
+
   return (
     <form onSubmit={handleSubmit}>
       <div className="space-y-6">
         {/* Storage Settings */}
         <Card>
           <CardHeader>
-            <CardTitle>Storage Settings</CardTitle>
+            <div className="flex items-center gap-2">
+              <HardDrive className="h-5 w-5 text-sentinel-purple" />
+              <CardTitle>Storage Settings</CardTitle>
+            </div>
             <CardDescription>
               Configure where recordings and other data are stored
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="space-y-2">
-              <div className="flex items-center gap-2">
-                <Label htmlFor="storageLocation">Recording Storage Path</Label>
-                <TooltipProvider>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <HelpCircle className="h-4 w-4 text-muted-foreground" />
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      <p className="w-80">
-                        Path to the directory where camera recordings will be saved. 
-                        Make sure the directory exists and has proper permissions.
-                      </p>
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-              </div>
-              <Input
-                id="storageLocation"
-                value={formData.storageLocation}
-                onChange={(e) => handleChange("storageLocation", e.target.value)}
-                placeholder="/var/visionhub/recordings/"
-              />
-            </div>
+            <Tabs 
+              defaultValue={formData.storageType} 
+              onValueChange={(value) => handleChange("storageType", value as StorageType)}
+              className="w-full"
+            >
+              <TabsList className="grid w-full grid-cols-2">
+                <TabsTrigger value="local" className="flex items-center gap-2">
+                  <HardDrive className="h-4 w-4" />
+                  Local Storage
+                </TabsTrigger>
+                <TabsTrigger value="nas" className="flex items-center gap-2">
+                  <Server className="h-4 w-4" />
+                  NAS Storage
+                  {formData.nasMounted && (
+                    <Badge variant="outline" className="ml-1 bg-green-50 text-green-600 border-green-200">
+                      Mounted
+                    </Badge>
+                  )}
+                </TabsTrigger>
+              </TabsList>
+              <div className="mt-4">
+                <TabsContent value="local" className="space-y-4">
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <Label htmlFor="storageLocation">Recording Storage Path</Label>
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <HelpCircle className="h-4 w-4 text-muted-foreground" />
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            <p className="w-80">
+                              Path to the directory where camera recordings will be saved. 
+                              Make sure the directory exists and has proper permissions.
+                            </p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    </div>
+                    <Input
+                      id="storageLocation"
+                      value={formData.storageLocation}
+                      onChange={(e) => handleChange("storageLocation", e.target.value)}
+                      placeholder="/var/visionhub/recordings/"
+                    />
+                  </div>
+                </TabsContent>
+                <TabsContent value="nas" className="space-y-4">
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <Label htmlFor="nasPath">NAS Share Path</Label>
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <HelpCircle className="h-4 w-4 text-muted-foreground" />
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            <p className="w-80">
+                              Path to the NAS share in format //server/share. 
+                              For example: //192.168.1.10/recordings
+                            </p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    </div>
+                    <Input
+                      id="nasPath"
+                      value={formData.nasPath || ''}
+                      onChange={(e) => handleChange("nasPath", e.target.value)}
+                      placeholder="//192.168.1.10/recordings"
+                    />
+                  </div>
 
-            <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="nasUsername">NAS Username</Label>
+                      <Input
+                        id="nasUsername"
+                        value={formData.nasUsername || ''}
+                        onChange={(e) => handleChange("nasUsername", e.target.value)}
+                        placeholder="username"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="nasPassword">NAS Password</Label>
+                      <Input
+                        id="nasPassword"
+                        type="password"
+                        value={formData.nasPassword || ''}
+                        onChange={(e) => handleChange("nasPassword", e.target.value)}
+                        placeholder="password"
+                      />
+                    </div>
+                  </div>
+                  
+                  <div>
+                    <Button 
+                      type="button" 
+                      variant="outline" 
+                      onClick={validateNasConnection}
+                      disabled={isValidating || !formData.nasPath}
+                    >
+                      {isValidating ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Validating...
+                        </>
+                      ) : (
+                        <>
+                          <Check className="mr-2 h-4 w-4" />
+                          Test Connection
+                        </>
+                      )}
+                    </Button>
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      Will be mounted at /mnt/visionhub when applied
+                    </p>
+                  </div>
+                </TabsContent>
+              </div>
+            </Tabs>
+
+            <div className="grid grid-cols-2 gap-4 mt-4">
               <div className="space-y-2">
                 <Label htmlFor="recordingFormat">Recording Format</Label>
                 <Select
@@ -239,8 +368,15 @@ export function SettingsForm({ settings, onSave }: SettingsFormProps) {
         </Card>
 
         <CardFooter className="px-0 pb-0">
-          <Button type="submit" disabled={isSaving}>
-            {isSaving ? "Saving..." : "Save Settings"}
+          <Button type="submit" disabled={isSaving} className="flex items-center">
+            {isSaving ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Applying Changes...
+              </>
+            ) : (
+              'Apply Changes'
+            )}
           </Button>
         </CardFooter>
       </div>

@@ -1,4 +1,3 @@
-
 /*
  * VisionHub One Sentinel Backend
  * This implements a camera management system with ONVIF discovery and RTMP recording.
@@ -8,7 +7,6 @@ const express = require('express');
 const path = require('path');
 const sqlite3 = require('sqlite3').verbose();
 const bodyParser = require('body-parser');
-const { exec } = require('child_process');
 const fs = require('fs');
 const http = require('http');
 const { v4: uuidv4 } = require('uuid');
@@ -18,11 +16,16 @@ const { discoverCameras } = require('./utils/onvifDiscovery');
 const { initWebSocketServer, broadcastEvent } = require('./utils/websocketManager');
 const { startRecording, stopRecording, isRecording, stopAllRecordings } = require('./utils/recordingEngine');
 const { monitorCamera, stopMonitoring, startMonitoring } = require('./utils/cameraMonitor');
+const { 
+  initializeStorage, 
+  validateNasConnection, 
+  updateStorageSettings,
+  LOCAL_STORAGE_PATH
+} = require('./utils/storageManager');
 
 // Configure environment variables
 const PORT = process.env.PORT || 3000;
 const DB_PATH = process.env.DB_PATH || path.join(__dirname, '../db/visionhub.db');
-const STORAGE_PATH = process.env.STORAGE_PATH || '/var/visionhub/recordings';
 
 // Initialize Express app
 const app = express();
@@ -45,11 +48,18 @@ try {
   process.exit(1);
 }
 
-// Ensure storage directory exists
-if (!fs.existsSync(STORAGE_PATH)) {
+// Initialize storage
+initializeStorage(db).then(storagePath => {
+  console.log(`Storage initialized at: ${storagePath}`);
+}).catch(err => {
+  console.error('Storage initialization error:', err);
+});
+
+// Ensure local storage directory exists (as fallback)
+if (!fs.existsSync(LOCAL_STORAGE_PATH)) {
   try {
-    fs.mkdirSync(STORAGE_PATH, { recursive: true });
-    console.log(`Created storage directory at ${STORAGE_PATH}`);
+    fs.mkdirSync(LOCAL_STORAGE_PATH, { recursive: true });
+    console.log(`Created local storage directory at ${LOCAL_STORAGE_PATH}`);
   } catch (err) {
     console.error('Error creating storage directory:', err);
   }
@@ -243,7 +253,7 @@ app.get('/api/settings', (req, res) => {
 });
 
 // PUT /api/settings - Update system settings
-app.put('/api/settings', (req, res) => {
+app.put('/api/settings', async (req, res) => {
   const { 
     storage_location, 
     network_subnet, 
@@ -252,38 +262,58 @@ app.put('/api/settings', (req, res) => {
     motion_detection_enabled, 
     alert_email,
     alert_webhook_url, 
-    retention_days 
+    retention_days,
+    storage_type,
+    nas_path,
+    nas_username,
+    nas_password
   } = req.body;
   
-  const sql = `UPDATE settings SET 
-               storage_location = ?,
-               network_subnet = ?,
-               recording_format = ?,
-               recording_quality = ?,
-               motion_detection_enabled = ?,
-               alert_email = ?,
-               alert_webhook_url = ?,
-               retention_days = ?
-               WHERE id = 1`;
-               
-  db.run(sql, [
-    storage_location,
-    network_subnet,
-    recording_format,
-    recording_quality,
-    motion_detection_enabled ? 1 : 0,
-    alert_email,
-    alert_webhook_url,
-    retention_days
-  ], function(err) {
-    if (err) {
-      return res.status(500).json({ error: err.message });
+  try {
+    // First handle storage configuration
+    let updatedStorageSettings = {};
+    
+    if (storage_type) {
+      updatedStorageSettings = await updateStorageSettings({
+        storage_type,
+        nas_path,
+        nas_username,
+        nas_password
+      }, db);
     }
+    
+    // Then update other settings
+    const sql = `UPDATE settings SET 
+                 storage_location = ?,
+                 network_subnet = ?,
+                 recording_format = ?,
+                 recording_quality = ?,
+                 motion_detection_enabled = ?,
+                 alert_email = ?,
+                 alert_webhook_url = ?,
+                 retention_days = ?
+                 WHERE id = 1`;
+                 
+    await new Promise((resolve, reject) => {
+      db.run(sql, [
+        storage_location,
+        network_subnet,
+        recording_format,
+        recording_quality,
+        motion_detection_enabled ? 1 : 0,
+        alert_email,
+        alert_webhook_url,
+        retention_days
+      ], function(err) {
+        if (err) reject(err);
+        else resolve(this);
+      });
+    });
     
     // Log event
     const eventId = uuidv4();
     const eventSql = `INSERT INTO events (id, timestamp, event_type, message, severity) 
-                      VALUES (?, ?, ?, ?, ?)`;
+                     VALUES (?, ?, ?, ?, ?)`;
     db.run(eventSql, [
       eventId,
       new Date().toISOString(),
@@ -292,6 +322,16 @@ app.put('/api/settings', (req, res) => {
       'info'
     ]);
     
+    // Broadcast event
+    broadcastEvent({
+      id: eventId,
+      timestamp: new Date().toISOString(),
+      eventType: 'system_updated',
+      message: 'System settings updated',
+      severity: 'info'
+    });
+    
+    // Return updated settings
     res.json({ 
       storage_location, 
       network_subnet, 
@@ -300,9 +340,40 @@ app.put('/api/settings', (req, res) => {
       motion_detection_enabled: !!motion_detection_enabled, 
       alert_email,
       alert_webhook_url, 
-      retention_days 
+      retention_days,
+      storage_type,
+      nas_path,
+      nas_username,
+      nas_password,
+      nas_mounted: updatedStorageSettings.nas_mounted
     });
-  });
+  } catch (err) {
+    console.error('Error updating settings:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/settings/nas/validate - Validate NAS connection
+app.post('/api/settings/nas/validate', async (req, res) => {
+  const { path, username, password } = req.body;
+  
+  if (!path) {
+    return res.status(400).json({
+      success: false,
+      error: 'NAS path is required'
+    });
+  }
+  
+  try {
+    const result = await validateNasConnection(path, username, password);
+    res.json(result);
+  } catch (error) {
+    console.error('Error validating NAS connection:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
 });
 
 // PUT /api/cameras/:id - Update a camera
@@ -466,7 +537,7 @@ app.put('/api/cameras/:id/record', (req, res) => {
     
     if (record) {
       // Start recording
-      const result = startRecording(cameraObj, db, STORAGE_PATH);
+      const result = startRecording(cameraObj, db);
       res.json(result);
     } else {
       // Stop recording

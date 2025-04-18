@@ -4,6 +4,7 @@ const path = require('path');
 const fs = require('fs');
 const { v4: uuidv4 } = require('uuid');
 const { broadcastCameraStatus, broadcastEvent } = require('./websocketManager');
+const { getStoragePath } = require('./storageManager');
 
 // Map of active recording processes: cameraId -> { process, filePath, startTime }
 const activeRecordings = new Map();
@@ -12,14 +13,16 @@ const activeRecordings = new Map();
  * Start recording a camera stream
  * @param {object} camera - Camera object with all required properties
  * @param {object} db - SQLite database connection
- * @param {string} storagePath - Path to store recordings
  * @returns {object} Recording information
  */
-function startRecording(camera, db, storagePath) {
+function startRecording(camera, db) {
   if (activeRecordings.has(camera.id)) {
     console.log(`Recording already active for camera ${camera.name}`);
     return { success: false, error: 'Recording already active' };
   }
+  
+  // Get storage path (either local or NAS based on configuration)
+  const storagePath = getStoragePath();
   
   // Ensure storage directory exists
   if (!fs.existsSync(storagePath)) {

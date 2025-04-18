@@ -3,6 +3,7 @@ import React from "react";
 import { PageHeader } from "@/components/ui/page-header";
 import { SettingsForm } from "@/components/settings/SettingsForm";
 import { useSystemSettings } from "@/hooks/useSystemSettings";
+import { Loader2 } from "lucide-react";
 
 const Settings = () => {
   const { settings, loading, saveSettings } = useSystemSettings();
@@ -16,7 +17,7 @@ const Settings = () => {
       
       {loading ? (
         <div className="flex items-center justify-center py-8">
-          <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-sentinel-purple"></div>
+          <Loader2 className="h-8 w-8 animate-spin text-sentinel-purple" />
         </div>
       ) : (
         <SettingsForm 
