@@ -1,4 +1,3 @@
-
 import React, { useState } from "react";
 import { PageHeader } from "@/components/ui/page-header";
 import { useRecordings } from "@/hooks/useRecordings";
@@ -19,41 +18,33 @@ const Recordings = () => {
   const { recordings, deleteRecording, exportRecording } = useRecordings();
   const { cameras } = useCameras();
   
-  // State for filters
   const [dateFrom, setDateFrom] = useState<Date | undefined>(undefined);
   const [dateTo, setDateTo] = useState<Date | undefined>(undefined);
   const [cameraFilter, setCameraFilter] = useState<string>("all");
   const [triggerFilter, setTriggerFilter] = useState<string>("all");
   const [viewMode, setViewMode] = useState<string>("grid");
   
-  // State for playback dialog
   const [selectedRecording, setSelectedRecording] = useState<RecordingEvent | null>(null);
   const [playbackDialogOpen, setPlaybackDialogOpen] = useState(false);
   
-  // Filter recordings based on filters
   const filteredRecordings = recordings.filter(recording => {
-    // Date range filter
     let matchesDate = true;
     if (dateFrom) {
       matchesDate = matchesDate && new Date(recording.startTime) >= dateFrom;
     }
     if (dateTo) {
-      // Add one day to dateTo to include the full day
       const endDate = new Date(dateTo);
       endDate.setDate(endDate.getDate() + 1);
       matchesDate = matchesDate && new Date(recording.startTime) <= endDate;
     }
     
-    // Camera filter
     const matchesCamera = cameraFilter === "all" || recording.cameraId === cameraFilter;
     
-    // Trigger type filter
     const matchesTrigger = triggerFilter === "all" || recording.triggerType === triggerFilter;
     
     return matchesDate && matchesCamera && matchesTrigger;
   });
   
-  // Reset filters
   const resetFilters = () => {
     setDateFrom(undefined);
     setDateTo(undefined);
@@ -61,24 +52,20 @@ const Recordings = () => {
     setTriggerFilter("all");
   };
   
-  // Handle playback
   const handlePlayback = (recording: RecordingEvent) => {
     setSelectedRecording(recording);
     setPlaybackDialogOpen(true);
   };
   
-  // Handle export
   const handleExport = async (recordingId: string) => {
     try {
       const result = await exportRecording(recordingId);
       console.log("Export successful:", result);
-      // In a real app, this would trigger a download
     } catch (error) {
       console.error("Export failed:", error);
     }
   };
   
-  // Format file size
   const formatFileSize = (bytes?: number) => {
     if (!bytes) return "Unknown";
     
@@ -95,21 +82,19 @@ const Recordings = () => {
   };
 
   return (
-    <div className="p-6 space-y-6 h-full overflow-auto">
+    <div className="p-6 space-y-6 h-full overflow-auto bg-gradient-to-br from-background to-background/50">
       <PageHeader 
         title="Recordings" 
         description="View and manage camera recordings"
       />
       
-      {/* Filter section */}
-      <div className="bg-card border border-border rounded-md p-4">
+      <div className="backdrop-blur-xl bg-card/50 border border-border/50 shadow-lg rounded-xl p-6">
         <div className="flex flex-wrap gap-4 items-start">
-          {/* Date range popover */}
           <Popover>
             <PopoverTrigger asChild>
               <Button
                 variant="outline"
-                className="w-[240px] justify-start text-left font-normal"
+                className="w-[240px] justify-start text-left font-normal bg-background/50 backdrop-blur-sm hover:bg-accent/10"
               >
                 <CalendarIcon className="mr-2 h-4 w-4" />
                 {dateFrom && dateTo ? (
@@ -117,7 +102,7 @@ const Recordings = () => {
                     {format(dateFrom, "MMM d, yyyy")} - {format(dateTo, "MMM d, yyyy")}
                   </>
                 ) : (
-                  <span>Date range</span>
+                  <span>Pick date range</span>
                 )}
               </Button>
             </PopoverTrigger>
@@ -149,7 +134,7 @@ const Recordings = () => {
             value={cameraFilter}
             onValueChange={setCameraFilter}
           >
-            <SelectTrigger className="w-[200px]">
+            <SelectTrigger className="w-[200px] bg-background/50 backdrop-blur-sm">
               <SelectValue placeholder="Filter by camera" />
             </SelectTrigger>
             <SelectContent>
@@ -166,7 +151,7 @@ const Recordings = () => {
             value={triggerFilter}
             onValueChange={setTriggerFilter}
           >
-            <SelectTrigger className="w-[200px]">
+            <SelectTrigger className="w-[200px] bg-background/50 backdrop-blur-sm">
               <SelectValue placeholder="Trigger type" />
             </SelectTrigger>
             <SelectContent>
@@ -180,6 +165,7 @@ const Recordings = () => {
           <Button 
             variant="outline" 
             onClick={resetFilters}
+            className="bg-background/50 backdrop-blur-sm hover:bg-accent/10"
           >
             <Filter className="h-4 w-4 mr-2" />
             Reset Filters
@@ -191,7 +177,7 @@ const Recordings = () => {
               onValueChange={setViewMode}
               className="w-[200px]"
             >
-              <TabsList className="grid w-full grid-cols-2">
+              <TabsList className="grid w-full grid-cols-2 bg-background/50 backdrop-blur-sm">
                 <TabsTrigger value="grid">Grid View</TabsTrigger>
                 <TabsTrigger value="list">List View</TabsTrigger>
               </TabsList>
@@ -200,39 +186,37 @@ const Recordings = () => {
         </div>
       </div>
       
-      {/* Recordings display */}
       <div className="space-y-6">
         <Tabs value={viewMode} className="w-full">
           <TabsContent value="grid" className="mt-0">
             {filteredRecordings.length > 0 ? (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
                 {filteredRecordings.map((recording) => (
-                  <Card key={recording.id} className="overflow-hidden">
+                  <Card key={recording.id} className="group overflow-hidden border-border/50 backdrop-blur-sm bg-card/50 hover:bg-card/80 transition-all duration-300">
                     <div className="aspect-video bg-black relative cursor-pointer" onClick={() => handlePlayback(recording)}>
                       <img 
                         src={recording.thumbnail}
                         alt={`Recording from ${recording.cameraName}`}
-                        className="h-full w-full object-cover"
+                        className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
                       />
-                      <div className="absolute inset-0 flex items-center justify-center bg-black/30 opacity-0 hover:opacity-100 transition-opacity">
+                      <div className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity backdrop-blur-sm">
                         <PlayCircle className="h-12 w-12 text-white" />
                       </div>
-                      {/* Recording info overlay */}
-                      <div className="absolute bottom-0 left-0 right-0 bg-black/70 backdrop-blur-sm text-white p-2 text-sm">
+                      <div className="absolute bottom-0 left-0 right-0 bg-black/60 backdrop-blur-md text-white p-3 transform translate-y-full transition-transform duration-300 group-hover:translate-y-0">
                         <p className="font-medium">{recording.cameraName}</p>
-                        <p className="text-xs">
+                        <p className="text-xs opacity-80">
                           {format(parseISO(recording.startTime), "MMM d, yyyy HH:mm:ss")}
                         </p>
                       </div>
                     </div>
-                    <CardContent className="p-3">
+                    <CardContent className="p-4">
                       <div className="flex justify-between items-center">
                         <div>
                           <span className={cn(
-                            "inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium mr-2",
-                            recording.triggerType === 'motion' && "bg-sentinel-status-warning/10 text-sentinel-status-warning",
-                            recording.triggerType === 'manual' && "bg-sentinel-blue/10 text-sentinel-blue",
-                            recording.triggerType === 'scheduled' && "bg-sentinel-purple/10 text-sentinel-purple",
+                            "inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium mr-2 transition-colors",
+                            recording.triggerType === 'motion' && "bg-sentinel-status-warning/20 text-sentinel-status-warning",
+                            recording.triggerType === 'manual' && "bg-sentinel-blue/20 text-sentinel-blue",
+                            recording.triggerType === 'scheduled' && "bg-sentinel-purple/20 text-sentinel-purple",
                           )}>
                             {recording.triggerType}
                           </span>
@@ -242,11 +226,11 @@ const Recordings = () => {
                               : "In progress"}
                           </span>
                         </div>
-                        <div className="flex gap-1">
+                        <div className="flex gap-2">
                           <Button 
                             variant="ghost" 
                             size="sm" 
-                            className="h-7 w-7 p-0"
+                            className="h-8 w-8 p-0 hover:bg-accent/20"
                             onClick={() => handleExport(recording.id)}
                           >
                             <Download className="h-4 w-4" />
@@ -255,7 +239,7 @@ const Recordings = () => {
                           <Button 
                             variant="ghost" 
                             size="sm" 
-                            className="h-7 w-7 p-0 text-destructive hover:text-destructive"
+                            className="h-8 w-8 p-0 text-destructive hover:bg-destructive/10"
                             onClick={() => deleteRecording(recording.id)}
                           >
                             <Trash2 className="h-4 w-4" />
@@ -268,7 +252,7 @@ const Recordings = () => {
                 ))}
               </div>
             ) : (
-              <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
+              <div className="flex flex-col items-center justify-center py-16 text-muted-foreground backdrop-blur-xl bg-card/50 border border-border/50 rounded-xl">
                 <p className="text-lg font-medium">No recordings found</p>
                 <p className="text-sm mt-1">Try adjusting your filters</p>
               </div>
@@ -276,8 +260,8 @@ const Recordings = () => {
           </TabsContent>
           
           <TabsContent value="list" className="mt-0">
-            <div className="bg-card border border-border rounded-md overflow-hidden">
-              <div className="bg-muted p-3 grid grid-cols-12 text-sm font-medium">
+            <div className="backdrop-blur-xl bg-card/50 border border-border/50 rounded-xl overflow-hidden">
+              <div className="bg-muted/50 p-4 grid grid-cols-12 text-sm font-medium">
                 <div className="col-span-3">Date & Time</div>
                 <div className="col-span-2">Camera</div>
                 <div className="col-span-2">Trigger</div>
@@ -286,10 +270,10 @@ const Recordings = () => {
                 <div className="col-span-1">Actions</div>
               </div>
               
-              <div className="divide-y divide-border">
+              <div className="divide-y divide-border/50">
                 {filteredRecordings.length > 0 ? (
                   filteredRecordings.map((recording) => (
-                    <div key={recording.id} className="p-3 grid grid-cols-12 text-sm hover:bg-muted/50">
+                    <div key={recording.id} className="p-4 grid grid-cols-12 text-sm hover:bg-accent/5 transition-colors">
                       <div className="col-span-3 flex gap-3 items-center">
                         <div 
                           className="h-10 w-16 bg-black rounded overflow-hidden cursor-pointer"
@@ -362,9 +346,8 @@ const Recordings = () => {
         </Tabs>
       </div>
       
-      {/* Playback Dialog */}
       <Dialog open={playbackDialogOpen} onOpenChange={setPlaybackDialogOpen}>
-        <DialogContent className="sm:max-w-[720px] p-0">
+        <DialogContent className="sm:max-w-[720px] p-0 overflow-hidden backdrop-blur-xl bg-card/90 border-border/50">
           <div className="aspect-video bg-black w-full">
             {selectedRecording?.thumbnail && (
               <img 
@@ -373,7 +356,6 @@ const Recordings = () => {
                 className="h-full w-full object-cover"
               />
             )}
-            {/* In a real app, this would be a video player */}
             <div className="absolute inset-0 flex items-center justify-center">
               <PlayCircle className="h-16 w-16 text-white opacity-70" />
             </div>
