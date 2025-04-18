@@ -8,7 +8,7 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { SystemDiagnostics } from "@/types";
-import { Cpu, RefreshCw, Loader2, HardDrive, Ram, Activity, Tv2, PieChart } from "lucide-react";
+import { Cpu, RefreshCw, Loader2, HardDrive, MemoryStick, Activity, Tv2, PieChart } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 
 interface DiagnosticsCardProps {
@@ -21,7 +21,6 @@ export function DiagnosticsCard({ diagnostics, onRefresh }: DiagnosticsCardProps
   const [data, setData] = useState<SystemDiagnostics | undefined>(diagnostics);
   const [countdown, setCountdown] = useState(30);
   
-  // Format bytes to human-readable format
   const formatBytes = (bytes: number) => {
     if (bytes === 0) return '0 Bytes';
     
@@ -32,7 +31,6 @@ export function DiagnosticsCard({ diagnostics, onRefresh }: DiagnosticsCardProps
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   };
   
-  // Format seconds to days, hours, minutes, seconds
   const formatUptime = (seconds: number) => {
     const days = Math.floor(seconds / 86400);
     const hours = Math.floor((seconds % 86400) / 3600);
@@ -56,7 +54,6 @@ export function DiagnosticsCard({ diagnostics, onRefresh }: DiagnosticsCardProps
     }
   };
   
-  // Auto-refresh countdown
   useEffect(() => {
     if (!onRefresh) return;
     
@@ -107,7 +104,6 @@ export function DiagnosticsCard({ diagnostics, onRefresh }: DiagnosticsCardProps
         {data ? (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="space-y-4">
-              {/* CPU Usage */}
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
@@ -119,11 +115,10 @@ export function DiagnosticsCard({ diagnostics, onRefresh }: DiagnosticsCardProps
                 <Progress value={data.cpu} className="h-2" />
               </div>
               
-              {/* Memory Usage */}
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <Ram className="h-4 w-4 text-purple-500" />
+                    <MemoryStick className="h-4 w-4 text-purple-500" />
                     <span className="font-medium">Memory Usage</span>
                   </div>
                   <span className="font-semibold">
@@ -139,7 +134,6 @@ export function DiagnosticsCard({ diagnostics, onRefresh }: DiagnosticsCardProps
                 </div>
               </div>
               
-              {/* Disk Usage */}
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
@@ -161,7 +155,6 @@ export function DiagnosticsCard({ diagnostics, onRefresh }: DiagnosticsCardProps
             </div>
             
             <div className="space-y-4">
-              {/* System Uptime */}
               <div className="flex items-center justify-between p-3 border rounded-lg">
                 <div className="flex items-center gap-2">
                   <Activity className="h-4 w-4 text-green-500" />
@@ -172,7 +165,6 @@ export function DiagnosticsCard({ diagnostics, onRefresh }: DiagnosticsCardProps
                 </span>
               </div>
               
-              {/* Active Streams */}
               <div className="flex items-center justify-between p-3 border rounded-lg">
                 <div className="flex items-center gap-2">
                   <Tv2 className="h-4 w-4 text-red-500" />
@@ -183,7 +175,6 @@ export function DiagnosticsCard({ diagnostics, onRefresh }: DiagnosticsCardProps
                 </span>
               </div>
               
-              {/* Camera Status */}
               <div className="flex items-center justify-between p-3 border rounded-lg">
                 <div className="flex items-center gap-2">
                   <PieChart className="h-4 w-4 text-blue-500" />
