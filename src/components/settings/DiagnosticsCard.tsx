@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from "react";
 import { 
   Card, 
@@ -9,7 +8,7 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { SystemDiagnostics } from "@/types";
-import { Cpu, RefreshCw, Loader2, HardDrive, Memory, Activity, Tv2, PieChart } from "lucide-react";
+import { Cpu, RefreshCw, Loader2, HardDrive, Ram, Activity, Tv2, PieChart } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 
 interface DiagnosticsCardProps {
@@ -124,7 +123,7 @@ export function DiagnosticsCard({ diagnostics, onRefresh }: DiagnosticsCardProps
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <Memory className="h-4 w-4 text-purple-500" />
+                    <Ram className="h-4 w-4 text-purple-500" />
                     <span className="font-medium">Memory Usage</span>
                   </div>
                   <span className="font-semibold">

@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from "react";
 import { SystemSettings, StorageType } from "@/types";
 import { toast } from "@/components/ui/use-toast";
@@ -12,7 +11,8 @@ const defaultSettings: SystemSettings = {
   motionDetectionEnabled: true,
   retentionDays: 30,
   storageType: "local",
-  nasMounted: false
+  nasMounted: false,
+  sslEnabled: false
 };
 
 // In a real app, this would interact with a backend API
@@ -52,7 +52,10 @@ export function useSystemSettings() {
           nasPath: data.nas_path,
           nasUsername: data.nas_username,
           nasPassword: data.nas_password,
-          nasMounted: !!data.nas_mounted
+          nasMounted: !!data.nas_mounted,
+          sslEnabled: !!data.ssl_enabled,
+          sslCertPath: data.ssl_cert_path,
+          sslKeyPath: data.ssl_key_path
         };
         
         setSettings(transformedSettings);
@@ -148,7 +151,10 @@ export function useSystemSettings() {
         storage_type: updatedSettings.storageType,
         nas_path: updatedSettings.nasPath,
         nas_username: updatedSettings.nasUsername,
-        nas_password: updatedSettings.nasPassword
+        nas_password: updatedSettings.nasPassword,
+        ssl_enabled: updatedSettings.sslEnabled,
+        ssl_cert_path: updatedSettings.sslCertPath,
+        ssl_key_path: updatedSettings.sslKeyPath
       };
       
       // In a real app, this would call an API
