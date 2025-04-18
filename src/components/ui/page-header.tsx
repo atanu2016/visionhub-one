@@ -21,10 +21,10 @@ export function PageHeader({
         <div>
           <h1 className="text-2xl font-bold tracking-tight gradient-text">{title}</h1>
           {description && (
-            <p className="text-sm text-muted-foreground mt-1">{description}</p>
+            <p className="text-sm text-muted-foreground mt-1 animate-fade-in" style={{animationDelay: '0.1s'}}>{description}</p>
           )}
         </div>
-        {children && <div className="flex items-center gap-2">{children}</div>}
+        {children && <div className="flex items-center gap-2 animate-fade-in" style={{animationDelay: '0.2s'}}>{children}</div>}
       </div>
     </div>
   );
