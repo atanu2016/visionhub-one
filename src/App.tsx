@@ -12,29 +12,49 @@ import Recordings from "./pages/Recordings";
 import Events from "./pages/Events";
 import Settings from "./pages/Settings";
 import NotFound from "./pages/NotFound";
+import { useEffect } from "react";
+import websocketService from "./services/websocketService";
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      refetchOnWindowFocus: false,
+      retry: 1,
+    },
+  },
+});
 
-const App = () => (
-  <QueryClientProvider client={queryClient}>
-    <TooltipProvider>
-      <Toaster />
-      <Sonner />
-      <BrowserRouter>
-        <MainLayout>
-          <Routes>
-            <Route path="/" element={<Dashboard />} />
-            <Route path="/cameras/grid" element={<CameraGrid />} />
-            <Route path="/cameras/list" element={<CameraList />} />
-            <Route path="/recordings" element={<Recordings />} />
-            <Route path="/events" element={<Events />} />
-            <Route path="/settings" element={<Settings />} />
-            <Route path="*" element={<NotFound />} />
-          </Routes>
-        </MainLayout>
-      </BrowserRouter>
-    </TooltipProvider>
-  </QueryClientProvider>
-);
+const App = () => {
+  // Initialize websocket connection
+  useEffect(() => {
+    websocketService.connect();
+    
+    return () => {
+      websocketService.disconnect();
+    };
+  }, []);
+
+  return (
+    <QueryClientProvider client={queryClient}>
+      <TooltipProvider>
+        <Toaster />
+        <Sonner />
+        <BrowserRouter>
+          <MainLayout>
+            <Routes>
+              <Route path="/" element={<Dashboard />} />
+              <Route path="/cameras/grid" element={<CameraGrid />} />
+              <Route path="/cameras/list" element={<CameraList />} />
+              <Route path="/recordings" element={<Recordings />} />
+              <Route path="/events" element={<Events />} />
+              <Route path="/settings" element={<Settings />} />
+              <Route path="*" element={<NotFound />} />
+            </Routes>
+          </MainLayout>
+        </BrowserRouter>
+      </TooltipProvider>
+    </QueryClientProvider>
+  );
+};
 
 export default App;

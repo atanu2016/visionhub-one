@@ -27,11 +27,18 @@ export function CameraListItem({
         <div className={cn("status-dot", camera.status)} />
         <div>
           <h3 className="font-medium">{camera.name}</h3>
-          <p className="text-sm text-muted-foreground">{camera.ipAddress}</p>
+          <div className="flex items-center gap-2">
+            <p className="text-sm text-muted-foreground">{camera.ipAddress}</p>
+            {camera.manufacturer && (
+              <span className="text-xs bg-muted px-2 py-0.5 rounded-full">
+                {camera.manufacturer} {camera.model}
+              </span>
+            )}
+          </div>
         </div>
       </div>
       
-      <div className="flex items-center gap-2">
+      <div className="hidden md:flex items-center gap-2">
         {camera.isRecording && (
           <span className="text-xs font-medium text-sentinel-status-recording px-2 py-0.5 bg-sentinel-status-recording/10 rounded-full">
             Recording
@@ -52,6 +59,8 @@ export function CameraListItem({
             "h-8 w-8 p-0", 
             camera.isRecording && "text-sentinel-status-recording border-sentinel-status-recording"
           )}
+          disabled={camera.status === 'offline'}
+          title={camera.isRecording ? "Stop Recording" : "Start Recording"}
         >
           {camera.isRecording ? (
             <VideoOff className="h-4 w-4" />
@@ -67,6 +76,7 @@ export function CameraListItem({
           size="sm" 
           onClick={() => onSettings(camera)}
           className="h-8 w-8 p-0"
+          title="Camera Settings"
         >
           <Settings className="h-4 w-4" />
           <span className="sr-only">Settings</span>

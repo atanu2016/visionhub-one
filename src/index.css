@@ -1,145 +1,149 @@
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
-
+ 
 @layer base {
   :root {
-    /* Light mode (defaults) */
-    --background: 0 0% 98%;
-    --foreground: 222 47% 11%;
-    
+    --background: 0 0% 100%;
+    --foreground: 222.2 84% 4.9%;
+ 
     --card: 0 0% 100%;
-    --card-foreground: 222 47% 11%;
-    
+    --card-foreground: 222.2 84% 4.9%;
+ 
     --popover: 0 0% 100%;
-    --popover-foreground: 222 47% 11%;
-    
-    --primary: 262 63% 75%;
-    --primary-foreground: 0 0% 100%;
-    
-    --secondary: 217 33% 18%;
-    --secondary-foreground: 210 40% 98%;
-    
-    --muted: 210 40% 96%;
-    --muted-foreground: 215 16% 47%;
-    
-    --accent: 262 63% 75%;
-    --accent-foreground: 0 0% 100%;
-    
-    --destructive: 0 84% 60%;
+    --popover-foreground: 222.2 84% 4.9%;
+ 
+    --primary: 222.2 47.4% 11.2%;
+    --primary-foreground: 210 40% 98%;
+ 
+    --secondary: 210 40% 96.1%;
+    --secondary-foreground: 222.2 47.4% 11.2%;
+ 
+    --muted: 210 40% 96.1%;
+    --muted-foreground: 215.4 16.3% 46.9%;
+ 
+    --accent: 210 40% 96.1%;
+    --accent-foreground: 222.2 47.4% 11.2%;
+ 
+    --destructive: 0 84.2% 60.2%;
     --destructive-foreground: 210 40% 98%;
-    
-    --border: 214 32% 91%;
-    --input: 214 32% 91%;
-    --ring: 262 63% 75%;
-    
+ 
+    --warning: 38 92% 50%;
+    --warning-foreground: 48 96% 89%;
+ 
+    --border: 214.3 31.8% 91.4%;
+    --input: 214.3 31.8% 91.4%;
+    --ring: 222.2 84% 4.9%;
+ 
     --radius: 0.5rem;
-    
-    --sidebar-background: 0 0% 98%;
-    --sidebar-foreground: 240 5% 26%;
-    --sidebar-primary: 240 6% 10%;
-    --sidebar-primary-foreground: 0 0% 98%;
-    --sidebar-accent: 240 5% 96%;
-    --sidebar-accent-foreground: 240 6% 10%;
-    --sidebar-border: 220 13% 91%;
-    --sidebar-ring: 217 91% 60%;
-  }
 
+    /* Sentinel custom colors */
+    --sentinel-purple: 255 70% 75%;
+    --sentinel-status-active: 142 71% 45%;
+    --sentinel-status-recording: 346 100% 60%;
+    --sentinel-status-danger: 0 84% 60%;
+    --sentinel-status-warning: 38 92% 50%;
+  }
+ 
   .dark {
-    /* Dark mode - use this as our default for VisionHub */
-    --background: 222 20% 10%;
-    --foreground: 0 0% 98%;
-    
-    --card: 222 20% 13%;
-    --card-foreground: 0 0% 98%;
-    
-    --popover: 222 20% 13%;
-    --popover-foreground: 0 0% 98%;
-    
-    --primary: 262 63% 75%;
-    --primary-foreground: 0 0% 100%;
-    
-    --secondary: 217 33% 18%;
+    --background: 222.2 84% 4.9%;
+    --foreground: 210 40% 98%;
+ 
+    --card: 222.2 84% 4.9%;
+    --card-foreground: 210 40% 98%;
+ 
+    --popover: 222.2 84% 4.9%;
+    --popover-foreground: 210 40% 98%;
+ 
+    --primary: 210 40% 98%;
+    --primary-foreground: 222.2 47.4% 11.2%;
+ 
+    --secondary: 217.2 32.6% 17.5%;
     --secondary-foreground: 210 40% 98%;
-    
-    --muted: 217 33% 18%;
-    --muted-foreground: 215 20% 65%;
-    
-    --accent: 262 63% 75%;
-    --accent-foreground: 0 0% 100%;
-    
-    --destructive: 0 63% 31%;
+ 
+    --muted: 217.2 32.6% 17.5%;
+    --muted-foreground: 215 20.2% 65.1%;
+ 
+    --accent: 217.2 32.6% 17.5%;
+    --accent-foreground: 210 40% 98%;
+ 
+    --destructive: 0 62.8% 30.6%;
     --destructive-foreground: 210 40% 98%;
-    
-    --border: 217 33% 18%;
-    --input: 217 33% 18%;
-    --ring: 263 63% 75%;
-    
-    --sidebar-background: 222 20% 8%;
-    --sidebar-foreground: 210 40% 98%;
-    --sidebar-primary: 262 63% 75%;
-    --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 222 20% 12%;
-    --sidebar-accent-foreground: 210 40% 98%;
-    --sidebar-border: 222 20% 15%;
-    --sidebar-ring: 262 63% 75%;
+ 
+    --border: 217.2 32.6% 17.5%;
+    --input: 217.2 32.6% 17.5%;
+    --ring: 212.7 26.8% 83.9%;
   }
 }
-
+ 
 @layer base {
   * {
     @apply border-border;
   }
-
   body {
-    @apply bg-background text-foreground dark;
+    @apply bg-background text-foreground;
   }
-  
-  /* Custom scrollbar for VisionHub */
-  ::-webkit-scrollbar {
-    width: 8px;
-    height: 8px;
-  }
-  
-  ::-webkit-scrollbar-track {
-    @apply bg-sentinel-gray-dark/30;
-  }
-  
-  ::-webkit-scrollbar-thumb {
-    @apply bg-sentinel-purple-dark/60 rounded-full;
-  }
-  
-  ::-webkit-scrollbar-thumb:hover {
-    @apply bg-sentinel-purple/80;
-  }
-  
-  /* VisionHub glass effect */
-  .glass-panel {
-    @apply bg-card/80 backdrop-blur-sm border border-border/50;
-  }
-  
-  /* Camera status indicators */
+}
+
+@layer components {
   .status-dot {
-    @apply h-2.5 w-2.5 rounded-full;
+    @apply h-2 w-2 rounded-full;
   }
   
   .status-dot.active {
-    @apply bg-sentinel-status-active animate-pulse;
+    @apply bg-[hsl(var(--sentinel-status-active))];
+    box-shadow: 0 0 6px hsl(var(--sentinel-status-active));
   }
   
   .status-dot.idle {
-    @apply bg-sentinel-status-idle;
+    @apply bg-muted-foreground;
   }
   
   .status-dot.recording {
-    @apply bg-sentinel-status-recording animate-pulse-recording;
+    @apply bg-[hsl(var(--sentinel-status-recording))];
+    box-shadow: 0 0 6px hsl(var(--sentinel-status-recording));
+    animation: pulse 2s infinite;
   }
   
   .status-dot.warning {
-    @apply bg-sentinel-status-warning;
+    @apply bg-[hsl(var(--sentinel-status-warning))];
+    box-shadow: 0 0 6px hsl(var(--sentinel-status-warning));
   }
   
   .status-dot.danger {
-    @apply bg-sentinel-status-danger;
+    @apply bg-[hsl(var(--sentinel-status-danger))];
+    box-shadow: 0 0 6px hsl(var(--sentinel-status-danger));
+  }
+  
+  .status-dot.offline {
+    @apply bg-muted-foreground/50;
+  }
+  
+  @keyframes pulse {
+    0% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.6;
+    }
+    100% {
+      opacity: 1;
+    }
+  }
+
+  @keyframes fade-in {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  
+  .animate-fade-in {
+    animation: fade-in 0.3s ease-out;
   }
 }

@@ -14,7 +14,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Camera, Plus, Search } from "lucide-react";
+import { Camera, Plus, Search, Loader2 } from "lucide-react";
 import { Camera as CameraType } from "@/types";
 
 // Empty camera template
@@ -34,8 +34,8 @@ const emptyCameraTemplate: Omit<CameraType, 'id'> = {
 };
 
 interface AddCameraDialogProps {
-  onAddCamera: (camera: Omit<CameraType, 'id'>) => void;
-  onDiscoverCameras: (subnet: string) => Promise<any>;
+  onAddCamera: (camera: Omit<CameraType, 'id'>) => Promise<CameraType | null>;
+  onDiscoverCameras: (subnet: string) => Promise<any[]>;
 }
 
 export function AddCameraDialog({
@@ -48,13 +48,21 @@ export function AddCameraDialog({
   const [subnet, setSubnet] = useState("192.168.1.0/24");
   const [isDiscovering, setIsDiscovering] = useState(false);
   const [discoveredCameras, setDiscoveredCameras] = useState<any[]>([]);
+  const [isAdding, setIsAdding] = useState(false);
 
   // Handle form submission
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    onAddCamera(formData);
-    setFormData({ ...emptyCameraTemplate });
-    setOpen(false);
+    setIsAdding(true);
+    try {
+      const result = await onAddCamera(formData);
+      if (result) {
+        setFormData({ ...emptyCameraTemplate });
+        setOpen(false);
+      }
+    } finally {
+      setIsAdding(false);
+    }
   };
 
   // Handle form field changes
@@ -69,38 +77,9 @@ export function AddCameraDialog({
   const handleDiscover = async () => {
     setIsDiscovering(true);
     try {
-      // In a real app this would call the actual discovery function
-      // For now, simulate discovery with a timeout
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      
-      // Simulate discovered cameras
-      const mockDiscoveredCameras = [
-        {
-          name: "Hallway Camera",
-          ipAddress: "192.168.1.100",
-          port: 80,
-          manufacturer: "Hikvision",
-          model: "DS-2CD2185FWD-I",
-        },
-        {
-          name: "Front Door",
-          ipAddress: "192.168.1.101",
-          port: 80,
-          manufacturer: "Dahua",
-          model: "IPC-HDW5231R-ZE",
-        },
-        {
-          name: "Parking Lot",
-          ipAddress: "192.168.1.102",
-          port: 80,
-          manufacturer: "Axis",
-          model: "P3245-LVE",
-        },
-      ];
-      
-      setDiscoveredCameras(mockDiscoveredCameras);
-    } catch (error) {
-      console.error("Error discovering cameras:", error);
+      // Use the real discovery function
+      const cameras = await onDiscoverCameras(subnet);
+      setDiscoveredCameras(cameras || []);
     } finally {
       setIsDiscovering(false);
     }
@@ -113,7 +92,7 @@ export function AddCameraDialog({
       name: camera.name || `Camera at ${camera.ipAddress}`,
       ipAddress: camera.ipAddress,
       onvifPort: camera.port,
-      streamUrl: `rtsp://${camera.ipAddress}/stream1`,
+      streamUrl: camera.streamUrl || `rtsp://${camera.ipAddress}/stream1`,
       manufacturer: camera.manufacturer,
       model: camera.model,
       lastUpdated: new Date().toISOString(),
@@ -243,7 +222,16 @@ export function AddCameraDialog({
                 <Button type="button" variant="outline" onClick={() => setOpen(false)}>
                   Cancel
                 </Button>
-                <Button type="submit">Add Camera</Button>
+                <Button type="submit" disabled={isAdding}>
+                  {isAdding ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Adding...
+                    </>
+                  ) : (
+                    "Add Camera"
+                  )}
+                </Button>
               </DialogFooter>
             </form>
           </TabsContent>
@@ -265,7 +253,14 @@ export function AddCameraDialog({
                       onClick={handleDiscover}
                       disabled={isDiscovering}
                     >
-                      {isDiscovering ? "Scanning..." : "Scan"}
+                      {isDiscovering ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Scanning...
+                        </>
+                      ) : (
+                        "Scan"
+                      )}
                     </Button>
                   </div>
                   <p className="text-xs text-muted-foreground">
@@ -276,7 +271,7 @@ export function AddCameraDialog({
                 {isDiscovering ? (
                   <div className="flex items-center justify-center py-8">
                     <div className="flex flex-col items-center gap-2">
-                      <Search className="h-8 w-8 animate-pulse text-sentinel-purple" />
+                      <Loader2 className="h-8 w-8 animate-spin text-sentinel-purple" />
                       <p className="text-sm text-muted-foreground">Scanning network for cameras...</p>
                     </div>
                   </div>

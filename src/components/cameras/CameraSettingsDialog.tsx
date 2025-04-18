@@ -14,15 +14,15 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Camera, Trash2 } from "lucide-react";
+import { Camera, Trash2, Loader2 } from "lucide-react";
 import { useState, useEffect } from "react";
 
 interface CameraSettingsDialogProps {
   camera?: CameraType;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onSave: (camera: CameraType) => void;
-  onDelete: (cameraId: string) => void;
+  onSave: (camera: CameraType) => Promise<CameraType | null>;
+  onDelete: (cameraId: string) => Promise<boolean>;
 }
 
 export function CameraSettingsDialog({
@@ -33,6 +33,8 @@ export function CameraSettingsDialog({
   onDelete,
 }: CameraSettingsDialogProps) {
   const [formData, setFormData] = useState<CameraType | undefined>(camera);
+  const [isSaving, setIsSaving] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   // Reset form when camera changes
   useEffect(() => {
@@ -40,11 +42,16 @@ export function CameraSettingsDialog({
   }, [camera]);
 
   // Handle form submission
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (formData) {
-      onSave(formData);
-      onOpenChange(false);
+      setIsSaving(true);
+      try {
+        await onSave(formData);
+        onOpenChange(false);
+      } finally {
+        setIsSaving(false);
+      }
     }
   };
 
@@ -59,10 +66,17 @@ export function CameraSettingsDialog({
   };
 
   // Handle delete confirmation
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (camera) {
-      onDelete(camera.id);
-      onOpenChange(false);
+      setIsDeleting(true);
+      try {
+        const success = await onDelete(camera.id);
+        if (success) {
+          onOpenChange(false);
+        }
+      } finally {
+        setIsDeleting(false);
+      }
     }
   };
 
@@ -199,10 +213,15 @@ export function CameraSettingsDialog({
               type="button"
               variant="destructive"
               onClick={handleDelete}
+              disabled={isDeleting}
               className="flex items-center gap-2"
             >
-              <Trash2 className="h-4 w-4" />
-              Delete Camera
+              {isDeleting ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Trash2 className="h-4 w-4" />
+              )}
+              {isDeleting ? "Deleting..." : "Delete Camera"}
             </Button>
 
             <div className="flex gap-2">
@@ -213,7 +232,16 @@ export function CameraSettingsDialog({
               >
                 Cancel
               </Button>
-              <Button type="submit">Save Changes</Button>
+              <Button type="submit" disabled={isSaving}>
+                {isSaving ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Saving...
+                  </>
+                ) : (
+                  "Save Changes"
+                )}
+              </Button>
             </div>
           </DialogFooter>
         </form>
