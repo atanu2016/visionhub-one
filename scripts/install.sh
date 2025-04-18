@@ -1,8 +1,7 @@
 
 #!/bin/bash
 
-# VisionHub One Sentinel Installation Script
-# For Ubuntu Server 22.04 LTS
+# VisionHub One Sentinel Install Script
 
 # Exit on any error
 set -e
@@ -10,7 +9,6 @@ set -e
 # Print header
 echo "============================================"
 echo "  VisionHub One Sentinel Installer"
-echo "  Version 1.0.0"
 echo "============================================"
 echo ""
 
@@ -21,137 +19,88 @@ if [ "$EUID" -ne 0 ]; then
   exit 1
 fi
 
-# Create installation directory
-INSTALL_DIR="/opt/visionhub"
-echo "Creating installation directory at $INSTALL_DIR..."
-mkdir -p $INSTALL_DIR
-cd $INSTALL_DIR
+# Default installation directory
+INSTALL_DIR="/opt/visionhub/visionhub-one-sentinel"
 
-# Update system and install dependencies
-echo "Updating system packages..."
-apt-get update
-apt-get upgrade -y
+# Parse command line arguments
+while [[ $# -gt 0 ]]; do
+  key="$1"
+  case $key in
+    -d|--directory)
+      INSTALL_DIR="$2"
+      shift 2
+      ;;
+    *)
+      echo "Unknown option: $1"
+      exit 1
+      ;;
+  esac
+done
 
-echo "Installing required dependencies..."
-apt-get install -y curl wget gnupg2 ffmpeg sqlite3 build-essential git cifs-utils
+echo "Installing VisionHub One Sentinel to $INSTALL_DIR"
 
-# Install Node.js 18.x
-echo "Installing Node.js..."
-if ! command -v node &> /dev/null; then
+# Check for required dependencies
+echo "Checking system requirements..."
+
+# Check ffmpeg
+if ! command -v ffmpeg >/dev/null 2>&1; then
+  echo "Installing ffmpeg..."
+  apt-get update && apt-get install -y ffmpeg
+fi
+
+# Check node.js
+if ! command -v node >/dev/null 2>&1; then
+  echo "Installing Node.js..."
   curl -fsSL https://deb.nodesource.com/setup_18.x | bash -
   apt-get install -y nodejs
 fi
 
-# Verify Node.js and npm installation
-NODE_VERSION=$(node -v)
-NPM_VERSION=$(npm -v)
-echo "Node.js version: $NODE_VERSION"
-echo "npm version: $NPM_VERSION"
-
-# Create directories for recordings
-echo "Creating directories for recordings and logs..."
-mkdir -p /var/visionhub/recordings
-mkdir -p /var/visionhub/logs
-mkdir -p /var/visionhub/db
-mkdir -p /mnt/visionhub
-chmod -R 755 /var/visionhub
-chmod -R 755 /mnt/visionhub
-
-# Clone the repository
-echo "Cloning VisionHub One Sentinel repository..."
-if [ -d "$INSTALL_DIR/visionhub-one-sentinel" ]; then
-  echo "Repository directory already exists. Updating..."
-  cd $INSTALL_DIR/visionhub-one-sentinel
-  git pull
-else
-  git clone https://github.com/yourusername/visionhub-one-sentinel.git $INSTALL_DIR/visionhub-one-sentinel
-  cd $INSTALL_DIR/visionhub-one-sentinel
+# Check npm
+if ! command -v npm >/dev/null 2>&1; then
+  echo "Installing npm..."
+  apt-get install -y npm
 fi
 
-# Install Node.js dependencies
-echo "Installing Node.js dependencies..."
+# Check cifs-utils (for NAS storage)
+if ! command -v mount.cifs >/dev/null 2>&1; then
+  echo "Installing cifs-utils for NAS support..."
+  apt-get install -y cifs-utils
+fi
+
+# Create installation directory
+echo "Creating installation directory..."
+mkdir -p $INSTALL_DIR
+cd $INSTALL_DIR
+
+# Clone repository or copy files
+echo "Copying application files..."
+# Note: In a real installation this would clone from a git repository
+# git clone https://github.com/example/visionhub-one-sentinel.git .
+
+# Create data directories
+echo "Creating data directories..."
+mkdir -p $INSTALL_DIR/db
+mkdir -p /var/visionhub/recordings
+mkdir -p /mnt/visionhub
+
+# Set permissions
+echo "Setting permissions..."
+chown -R $SUDO_USER:$SUDO_USER $INSTALL_DIR
+chmod -R 755 $INSTALL_DIR
+chmod -R 755 /var/visionhub
+chmod -R 777 /mnt/visionhub
+
+# Install dependencies
+echo "Installing dependencies..."
 npm install
 
 # Build frontend
 echo "Building frontend..."
 npm run build
 
-# Create SQLite database
-echo "Initializing SQLite database..."
-cat > $INSTALL_DIR/visionhub-one-sentinel/init-db.sql << 'EOL'
--- Create Cameras table
-CREATE TABLE IF NOT EXISTS cameras (
-  id TEXT PRIMARY KEY,
-  name TEXT NOT NULL,
-  ip_address TEXT NOT NULL,
-  stream_url TEXT NOT NULL,
-  onvif_port INTEGER NOT NULL,
-  username TEXT,
-  password TEXT,
-  status TEXT NOT NULL,
-  motion_detection BOOLEAN NOT NULL,
-  motion_sensitivity INTEGER NOT NULL,
-  location TEXT,
-  manufacturer TEXT,
-  model TEXT,
-  last_updated TEXT NOT NULL,
-  is_recording BOOLEAN NOT NULL DEFAULT 0
-);
-
--- Create Recordings table
-CREATE TABLE IF NOT EXISTS recordings (
-  id TEXT PRIMARY KEY,
-  camera_id TEXT NOT NULL,
-  camera_name TEXT NOT NULL,
-  start_time TEXT NOT NULL,
-  end_time TEXT,
-  duration INTEGER,
-  trigger_type TEXT NOT NULL,
-  file_size INTEGER,
-  file_path TEXT NOT NULL,
-  thumbnail TEXT,
-  FOREIGN KEY (camera_id) REFERENCES cameras (id)
-);
-
--- Create Events table
-CREATE TABLE IF NOT EXISTS events (
-  id TEXT PRIMARY KEY,
-  timestamp TEXT NOT NULL,
-  event_type TEXT NOT NULL,
-  message TEXT NOT NULL,
-  camera_id TEXT,
-  severity TEXT NOT NULL,
-  FOREIGN KEY (camera_id) REFERENCES cameras (id)
-);
-
--- Create Settings table
-CREATE TABLE IF NOT EXISTS settings (
-  id INTEGER PRIMARY KEY CHECK (id = 1),
-  storage_location TEXT NOT NULL,
-  network_subnet TEXT NOT NULL,
-  recording_format TEXT NOT NULL,
-  recording_quality TEXT NOT NULL,
-  motion_detection_enabled BOOLEAN NOT NULL,
-  alert_email TEXT,
-  alert_webhook_url TEXT,
-  retention_days INTEGER NOT NULL,
-  storage_type TEXT DEFAULT 'local',
-  nas_path TEXT,
-  nas_username TEXT,
-  nas_password TEXT,
-  nas_mounted BOOLEAN DEFAULT 0
-);
-
--- Insert default settings
-INSERT OR IGNORE INTO settings (id, storage_location, network_subnet, recording_format, recording_quality, motion_detection_enabled, retention_days)
-VALUES (1, '/var/visionhub/recordings/', '192.168.1.0/24', 'mp4', 'medium', 1, 30);
-EOL
-
-sqlite3 /var/visionhub/db/visionhub.db < $INSTALL_DIR/visionhub-one-sentinel/init-db.sql
-
-# Set up systemd service
-echo "Setting up systemd service..."
-cat > /etc/systemd/system/visionhub.service << EOL
+# Create systemd service
+echo "Creating service..."
+cat > /etc/systemd/system/visionhub.service << 'EOL'
 [Unit]
 Description=VisionHub One Sentinel
 After=network.target
@@ -159,66 +108,35 @@ After=network.target
 [Service]
 Type=simple
 User=root
-WorkingDirectory=$INSTALL_DIR/visionhub-one-sentinel
-ExecStart=/usr/bin/node server.js
-Restart=always
-RestartSec=10
-StandardOutput=syslog
-StandardError=syslog
-SyslogIdentifier=visionhub
-Environment=NODE_ENV=production
+WorkingDirectory=INSTALL_DIR
+ExecStart=/usr/bin/node INSTALL_DIR/backend/index.js
+Restart=on-failure
 Environment=PORT=3000
-Environment=DB_PATH=/var/visionhub/db/visionhub.db
-Environment=STORAGE_PATH=/var/visionhub/recordings
+Environment=NODE_ENV=production
 
 [Install]
 WantedBy=multi-user.target
 EOL
 
-# Enable and start the service
-echo "Enabling and starting VisionHub One Sentinel service..."
+# Replace placeholder with actual install directory
+sed -i "s|INSTALL_DIR|$INSTALL_DIR|g" /etc/systemd/system/visionhub.service
+
+# Reload systemd and start service
+echo "Starting service..."
 systemctl daemon-reload
-systemctl enable visionhub.service
-systemctl start visionhub.service
-
-# Create update script
-echo "Creating update script..."
-cat > $INSTALL_DIR/update.sh << 'EOL'
-#!/bin/bash
-set -e
-
-INSTALL_DIR="/opt/visionhub/visionhub-one-sentinel"
-echo "Updating VisionHub One Sentinel..."
-cd $INSTALL_DIR
-
-# Pull latest changes
-git pull
-
-# Install dependencies
-npm install
-
-# Build frontend
-npm run build
-
-# Restart service
-systemctl restart visionhub.service
-echo "Update completed successfully!"
-EOL
-
-chmod +x $INSTALL_DIR/update.sh
+systemctl enable visionhub
+systemctl start visionhub
 
 # Print completion message
 echo ""
 echo "============================================"
-echo "  VisionHub One Sentinel installed successfully!"
+echo "  VisionHub One Sentinel installation complete!"
 echo "============================================"
 echo ""
 echo "* Service status: $(systemctl is-active visionhub.service)"
 echo "* Access the web interface at: http://$(hostname -I | awk '{print $1}'):3000"
-echo "* Recordings directory: /var/visionhub/recordings"
-echo "* NAS mount point: /mnt/visionhub"
-echo "* Database location: /var/visionhub/db/visionhub.db"
-echo "* To update: sudo $INSTALL_DIR/update.sh"
-echo ""
-echo "For more information, refer to the documentation."
+echo "* Logs can be viewed with: journalctl -u visionhub.service -f"
 echo "============================================"
+echo ""
+echo "Thank you for installing VisionHub One Sentinel!"
+echo ""

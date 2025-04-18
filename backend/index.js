@@ -3,6 +3,8 @@ const express = require('express');
 const path = require('path');
 const bodyParser = require('body-parser');
 const http = require('http');
+const https = require('https');
+const fs = require('fs');
 const { v4: uuidv4 } = require('uuid');
 
 // Import middleware
@@ -17,6 +19,7 @@ const { initWebSocketServer } = require('./utils/websocketManager');
 const { stopAllRecordings } = require('./utils/recordingEngine');
 const { startMonitoring } = require('./utils/cameraMonitor');
 const { initializeStorage } = require('./utils/storageManager');
+const { getSystemDiagnostics } = require('./utils/systemMonitor');
 
 // Configure environment variables
 const PORT = process.env.PORT || 3000;
@@ -26,54 +29,118 @@ const DB_PATH = process.env.DB_PATH || path.join(__dirname, '../db/visionhub.db'
 const app = express();
 app.use(bodyParser.json());
 app.use(express.static(path.join(__dirname, '../dist')));
+app.use('/backups', express.static(path.join(__dirname, '../backups')));
 
-// Create HTTP server for WebSocket support
-const server = http.createServer(app);
-
-// Initialize WebSocket server
-initWebSocketServer(server);
+// Create HTTP or HTTPS server based on settings
+let server;
 
 // Initialize database middleware
 app.use(databaseMiddleware(DB_PATH));
 
-// Initialize storage
-initializeStorage(app.get('db')).then(storagePath => {
-  console.log(`Storage initialized at: ${storagePath}`);
-}).catch(err => {
-  console.error('Storage initialization error:', err);
-});
+// Store the database path for later reference
+app.set('dbPath', DB_PATH);
 
-// API Routes
-app.use('/api/cameras', cameraRoutes);
-app.use('/api/settings', settingsRoutes);
+// Function to initialize the server
+async function initializeServer() {
+  try {
+    // Check if SSL is enabled
+    const settings = await new Promise((resolve, reject) => {
+      app.get('db').get('SELECT ssl_enabled, ssl_cert_path, ssl_key_path FROM settings WHERE id = 1', [], (err, row) => {
+        if (err) reject(err);
+        else resolve(row || { ssl_enabled: 0 });
+      });
+    });
+    
+    // Check if SSL is enabled and certificates exist
+    if (settings.ssl_enabled && settings.ssl_cert_path && settings.ssl_key_path) {
+      try {
+        // Resolve paths (SSL paths are stored as /ssl/file.crt, but actual path is relative to project root)
+        const certPath = path.join(__dirname, '..', settings.ssl_cert_path);
+        const keyPath = path.join(__dirname, '..', settings.ssl_key_path);
+        
+        // Check if files exist
+        if (fs.existsSync(certPath) && fs.existsSync(keyPath)) {
+          const options = {
+            key: fs.readFileSync(keyPath),
+            cert: fs.readFileSync(certPath)
+          };
+          
+          server = https.createServer(options, app);
+          console.log('HTTPS server created with SSL certificates');
+        } else {
+          console.warn('SSL certificates not found, falling back to HTTP');
+          server = http.createServer(app);
+        }
+      } catch (error) {
+        console.error('Error creating HTTPS server:', error);
+        console.warn('Falling back to HTTP server');
+        server = http.createServer(app);
+      }
+    } else {
+      // Create standard HTTP server
+      server = http.createServer(app);
+    }
 
-// Start camera monitoring
-const monitoringInterval = startMonitoring(app.get('db'));
+    // Initialize WebSocket server
+    initWebSocketServer(server);
 
-// Catch-all route for SPA
-app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, '../dist/index.html'));
-});
+    // Initialize storage
+    initializeStorage(app.get('db')).then(storagePath => {
+      console.log(`Storage initialized at: ${storagePath}`);
+    }).catch(err => {
+      console.error('Storage initialization error:', err);
+    });
 
-// Start server
-server.listen(PORT, () => {
-  console.log(`VisionHub One Sentinel backend running on port ${PORT}`);
-  
-  // Log system start event
-  const eventId = uuidv4();
-  const eventSql = `INSERT INTO events (id, timestamp, event_type, message, severity) 
-                    VALUES (?, ?, ?, ?, ?)`;
-  app.get('db').run(eventSql, [
-    eventId,
-    new Date().toISOString(),
-    'system_started',
-    'VisionHub One Sentinel system started',
-    'info'
-  ]);
-});
+    // API Routes
+    app.use('/api/cameras', cameraRoutes);
+    app.use('/api/settings', settingsRoutes);
+    
+    // Diagnostics route
+    app.get('/api/diagnostics', async (req, res) => {
+      try {
+        const diagnostics = await getSystemDiagnostics(req.db);
+        res.json(diagnostics);
+      } catch (error) {
+        console.error('Error getting diagnostics:', error);
+        res.status(500).json({ error: 'Failed to get system diagnostics' });
+      }
+    });
+    
+    // Start camera monitoring
+    const monitoringInterval = startMonitoring(app.get('db'));
+
+    // Catch-all route for SPA
+    app.get('*', (req, res) => {
+      res.sendFile(path.join(__dirname, '../dist/index.html'));
+    });
+
+    // Start server
+    server.listen(PORT, () => {
+      const protocol = server instanceof https.Server ? 'HTTPS' : 'HTTP';
+      console.log(`VisionHub One Sentinel backend running on ${protocol} port ${PORT}`);
+      
+      // Log system start event
+      const eventId = uuidv4();
+      const eventSql = `INSERT INTO events (id, timestamp, event_type, message, severity) 
+                      VALUES (?, ?, ?, ?, ?)`;
+      app.get('db').run(eventSql, [
+        eventId,
+        new Date().toISOString(),
+        'system_started',
+        `VisionHub One Sentinel system started (${protocol})`,
+        'info'
+      ]);
+    });
+    
+    return server;
+  } catch (error) {
+    console.error('Server initialization error:', error);
+    throw error;
+  }
+}
 
 // Handle graceful shutdown
-process.on('SIGINT', () => {
+function handleShutdown() {
   console.log('Shutting down gracefully...');
   
   // Stop all recordings
@@ -83,5 +150,14 @@ process.on('SIGINT', () => {
   app.get('db').close();
   
   process.exit(0);
+}
+
+// Initialize and start server
+initializeServer().catch(err => {
+  console.error('Failed to start server:', err);
+  process.exit(1);
 });
 
+// Handle graceful shutdown signals
+process.on('SIGINT', handleShutdown);
+process.on('SIGTERM', handleShutdown);
