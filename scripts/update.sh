@@ -113,7 +113,7 @@ echo "<html><body><h1>VisionHub One Sentinel</h1><p>Loading...</p></body></html>
 
 BUILD_SUCCESS=false
 
-# Strategy 1: Use esbuild approach if available
+# Strategy 1: Use esbuild direct call - now script is fixed
 if [ -f "./esbuild.config.js" ]; then
   log_message "Trying build with ESBuild..."
   node esbuild.config.js && {
@@ -122,12 +122,12 @@ if [ -f "./esbuild.config.js" ]; then
   } || log_message "ESBuild failed, trying next method"
 fi
 
-# Strategy 2: Use esbuild directly if available and Strategy 1 failed
-if [ "$BUILD_SUCCESS" != "true" ] && (command -v esbuild >/dev/null 2>&1 || [ -f "./node_modules/.bin/esbuild" ]); then
+# Strategy 2: Use direct esbuild command if available
+if [ "$BUILD_SUCCESS" != "true" ] && [ -f "./node_modules/.bin/esbuild" ]; then
   log_message "Trying build with direct esbuild command..."
   mkdir -p dist/assets
   
-  (./node_modules/.bin/esbuild src/main.tsx --bundle --format=esm --outfile=dist/assets/index.js || command -v esbuild >/dev/null 2>&1 && esbuild src/main.tsx --bundle --format=esm --outfile=dist/assets/index.js) && {
+  ./node_modules/.bin/esbuild src/main.tsx --bundle --format=esm --outfile=dist/assets/index.js && {
     echo "<!DOCTYPE html><html><head><meta charset=\"UTF-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\"><title>VisionHub One Sentinel</title><script type=\"module\" src=\"/assets/index.js\"></script></head><body><div id=\"root\"></div></body></html>" > dist/index.html
     log_message "Direct esbuild succeeded!"
     BUILD_SUCCESS=true
@@ -177,7 +177,7 @@ EOL
     
     # Strategy 4: Standard Vite build
     npm run build && log_message "Standard build successful!" && BUILD_SUCCESS=true || {
-      # Strategy 5: Final fallback - copy the minimal placeholder
+      # Strategy 5: Final fallback - minimal placeholder or restored backup
       log_message "All build attempts failed, using minimal placeholder."
       
       # Check if we have a backup we can use
@@ -188,7 +188,7 @@ EOL
         log_message "Using previous build from backup."
         BUILD_SUCCESS=true
       else
-        # Create minimal placeholder
+        # Create minimal placeholder if needed
         mkdir -p dist
         cat > dist/index.html << 'EOL'
 <!DOCTYPE html>
@@ -249,7 +249,7 @@ systemctl start visionhub.service || {
       rm -rf "$INSTALL_DIR/dist"
       cp -r "$BACKUP_DIR/dist" "$INSTALL_DIR/"
     fi
-  }
+  fi
   
   log_message "Restarting service..."
   systemctl restart visionhub.service || {

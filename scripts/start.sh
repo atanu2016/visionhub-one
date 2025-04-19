@@ -1,8 +1,7 @@
-
 #!/bin/bash
 
 # VisionHub One Sentinel Startup Script
-# Version 1.3.0 - With ESBuild support
+# Version 1.3.1 - With ESBuild support and CommonJS fixes
 
 # Exit on error
 set -e
@@ -373,8 +372,9 @@ if [ ! -f "backend/index.js" ]; then
   exit 1
 fi
 
-# More robust server start with explicit node flags
-debug_log "Starting Node.js server with explicit flags..."
+# More robust server start with explicit node flags 
+# IMPORTANT: Run with node explicitly, NOT requiring ES modules
+debug_log "Starting Node.js server with CommonJS module format..."
 NODE_OPTIONS="--no-node-snapshot --trace-warnings --no-warnings" \
 ROLLUP_SKIP_LOAD_NATIVE_PLUGIN=true \
 ROLLUP_BROWSER_NODE_RESOLVE=true \
@@ -402,7 +402,8 @@ node backend/index.js 2>&1 | tee -a "$LOG_DIR/startup.log" || {
   
   # Try to display any Node.js errors more clearly
   debug_log "Attempting to start with more verbose error output..."
-  NODE_OPTIONS="--no-node-snapshot --trace-warnings" node -e "try { require('./backend/index.js') } catch(e) { console.error('Startup Error:', e) }" 2>&1 | tee -a "$LOG_DIR/startup_errors.log"
+  NODE_OPTIONS="--no-node-snapshot --trace-warnings" \
+  node -e "try { require('./backend/index.js') } catch(e) { console.error('Startup Error:', e) }" 2>&1 | tee -a "$LOG_DIR/startup_errors.log"
   
   # Provide more detailed troubleshooting steps
   cat >> "$LOG_DIR/troubleshooting.txt" << 'EOL'
