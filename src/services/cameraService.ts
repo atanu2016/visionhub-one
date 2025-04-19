@@ -4,9 +4,28 @@ import { toast } from "@/hooks/use-toast";
 
 const API_BASE_URL = '/api';
 
+// Helper to get auth token from localStorage
+const getAuthToken = () => localStorage.getItem('authToken');
+
+// Helper to create headers with auth token
+const createHeaders = (contentType = 'application/json') => {
+  const headers: Record<string, string> = {
+    'Content-Type': contentType
+  };
+  
+  const token = getAuthToken();
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  
+  return headers;
+};
+
 export async function discoverCameras(subnet: string): Promise<any[]> {
   try {
-    const response = await fetch(`${API_BASE_URL}/cameras/discover?subnet=${encodeURIComponent(subnet)}`);
+    const response = await fetch(`${API_BASE_URL}/cameras/discover?subnet=${encodeURIComponent(subnet)}`, {
+      headers: createHeaders()
+    });
     
     if (!response.ok) {
       throw new Error(`Error: ${response.status}`);
@@ -28,9 +47,7 @@ export async function addCamera(cameraData: Omit<Camera, 'id'>): Promise<Camera 
   try {
     const response = await fetch(`${API_BASE_URL}/cameras`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers: createHeaders(),
       body: JSON.stringify(cameraData),
     });
     
@@ -59,9 +76,7 @@ export async function updateCamera(camera: Camera): Promise<Camera | null> {
   try {
     const response = await fetch(`${API_BASE_URL}/cameras/${camera.id}`, {
       method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers: createHeaders(),
       body: JSON.stringify(camera),
     });
     
@@ -90,6 +105,7 @@ export async function deleteCamera(cameraId: string): Promise<boolean> {
   try {
     const response = await fetch(`${API_BASE_URL}/cameras/${cameraId}`, {
       method: 'DELETE',
+      headers: createHeaders()
     });
     
     if (!response.ok) {
@@ -116,6 +132,7 @@ export async function toggleCameraRecording(cameraId: string): Promise<boolean> 
   try {
     const response = await fetch(`${API_BASE_URL}/cameras/${cameraId}/recording`, {
       method: 'POST',
+      headers: createHeaders()
     });
     
     if (!response.ok) {
@@ -136,7 +153,9 @@ export async function toggleCameraRecording(cameraId: string): Promise<boolean> 
 
 export async function getCameras(): Promise<Camera[]> {
   try {
-    const response = await fetch(`${API_BASE_URL}/cameras`);
+    const response = await fetch(`${API_BASE_URL}/cameras`, {
+      headers: createHeaders()
+    });
     
     if (!response.ok) {
       throw new Error(`Error: ${response.status}`);
@@ -164,9 +183,7 @@ export async function validateOnvifCamera(cameraData: {
   try {
     const response = await fetch(`${API_BASE_URL}/cameras/onvif/probe`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers: createHeaders(),
       body: JSON.stringify(cameraData),
     });
     

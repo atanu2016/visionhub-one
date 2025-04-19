@@ -7,15 +7,18 @@ const https = require('https');
 const fs = require('fs');
 const { v4: uuidv4 } = require('uuid');
 const { exec } = require('child_process');
+const cookieParser = require('cookie-parser');
 
 // Import middleware
 const databaseMiddleware = require('./middleware/databaseMiddleware');
+const authMiddleware = require('./middleware/authMiddleware');
 
 // Import routes
 const cameraRoutes = require('./routes/cameraRoutes');
 const settingsRoutes = require('./routes/settingsRoutes');
 const recordingRoutes = require('./routes/recordingRoutes');
 const eventRoutes = require('./routes/eventRoutes');
+const authRoutes = require('./routes/authRoutes');
 
 // Import utils
 const { initWebSocketServer } = require('./utils/websocketManager');
@@ -23,6 +26,7 @@ const { stopAllRecordings } = require('./utils/recordingEngine');
 const { startMonitoring } = require('./utils/cameraMonitor');
 const { initializeStorage } = require('./utils/storageManager');
 const { getSystemDiagnostics } = require('./utils/systemMonitor');
+const { initializeDatabase } = require('./utils/databaseInit');
 
 // Configure environment variables
 const PORT = process.env.PORT || 3000;
@@ -31,6 +35,7 @@ const DB_PATH = process.env.DB_PATH || path.join(__dirname, '../db/visionhub.db'
 // Initialize Express app
 const app = express();
 app.use(bodyParser.json());
+app.use(cookieParser());
 app.use(express.static(path.join(__dirname, '../dist')));
 app.use('/backups', express.static(path.join(__dirname, '../backups')));
 app.use('/recordings', express.static(path.join(__dirname, '../recordings')));
@@ -54,6 +59,30 @@ async function initializeServer() {
         else resolve(row || { ssl_enabled: 0 });
       });
     });
+    
+    // Initialize user auth tables
+    const db = app.get('db');
+    initializeDatabase(db);
+    
+    // Execute auth migration
+    const authMigration = fs.readFileSync(path.join(__dirname, './migrations/auth.sql'), 'utf8');
+    const statements = authMigration.split(';').filter(stmt => stmt.trim());
+    
+    for (const statement of statements) {
+      if (statement.trim()) {
+        await new Promise((resolve, reject) => {
+          db.run(statement, function(err) {
+            if (err) {
+              console.error('Error executing auth migration:', err);
+              console.error('Statement:', statement);
+              reject(err);
+            } else {
+              resolve();
+            }
+          });
+        });
+      }
+    }
     
     // Check if SSL is enabled and certificates exist
     if (settings.ssl_enabled && settings.ssl_cert_path && settings.ssl_key_path) {
@@ -96,6 +125,7 @@ async function initializeServer() {
     });
 
     // API Routes
+    app.use('/api/auth', authRoutes);
     app.use('/api/cameras', cameraRoutes);
     app.use('/api/settings', settingsRoutes);
     app.use('/api/recordings', recordingRoutes);

@@ -1,105 +1,88 @@
 
 import React, { useState, useEffect } from "react";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PageHeader } from "@/components/ui/page-header";
 import { SettingsForm } from "@/components/settings/SettingsForm";
-import { useSystemSettings } from "@/hooks/useSystemSettings";
-import { Loader2 } from "lucide-react";
-import { SystemDiagnostics } from "@/types";
-import { toast } from "@/components/ui/use-toast";
+import { AlertSettings } from "@/components/settings/AlertSettings";
+import { BackupSettings } from "@/components/settings/BackupSettings";
+import { DiagnosticsCard } from "@/components/settings/DiagnosticsCard";
+import { SystemUpdateCard } from "@/components/settings/SystemUpdateCard";
+import { SSLSettings } from "@/components/settings/SSLSettings";
+import UserManagement from "@/components/settings/UserManagement";
+import { useAuth } from "@/contexts/AuthContext";
 
 const Settings = () => {
-  const { settings, loading, saveSettings } = useSystemSettings();
-  const [diagnostics, setDiagnostics] = useState<SystemDiagnostics | undefined>(undefined);
+  const [diagnostics, setDiagnostics] = useState(null);
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
 
-  // Fetch system diagnostics
   const fetchDiagnostics = async () => {
     try {
       const response = await fetch('/api/diagnostics');
-      if (!response.ok) throw new Error('Failed to fetch diagnostics');
-      return await response.json();
+      if (!response.ok) {
+        throw new Error(`Error ${response.status}`);
+      }
+      const data = await response.json();
+      setDiagnostics(data);
     } catch (error) {
-      console.error("Error fetching diagnostics:", error);
-      return undefined;
+      console.error('Error fetching diagnostics:', error);
     }
   };
 
-  // Handle checking for updates
-  const checkForUpdates = async () => {
-    try {
-      const response = await fetch('/api/settings/update/check');
-      if (!response.ok) throw new Error('Failed to check for updates');
-      return await response.json();
-    } catch (error) {
-      console.error("Error checking for updates:", error);
-      throw error;
-    }
-  };
-
-  // Handle system backup
-  const handleBackup = async () => {
-    try {
-      const response = await fetch('/api/settings/backup');
-      if (!response.ok) throw new Error('Failed to create backup');
-      
-      const { downloadUrl } = await response.json();
-      return downloadUrl;
-    } catch (error) {
-      console.error("Error creating backup:", error);
-      throw error;
-    }
-  };
-
-  // Handle system restore
-  const handleRestore = async (file: File) => {
-    try {
-      const formData = new FormData();
-      formData.append('backup', file);
-      
-      const response = await fetch('/api/settings/restore', {
-        method: 'POST',
-        body: formData,
-      });
-      
-      if (!response.ok) throw new Error('Failed to restore system');
-      
-      const { success } = await response.json();
-      return success;
-    } catch (error) {
-      console.error("Error restoring system:", error);
-      throw error;
-    }
-  };
-
-  // Load diagnostics on initial render
   useEffect(() => {
-    fetchDiagnostics().then(data => {
-      if (data) setDiagnostics(data);
-    });
+    fetchDiagnostics();
+    // Poll for diagnostics every 30 seconds
+    const interval = setInterval(fetchDiagnostics, 30000);
+    return () => clearInterval(interval);
   }, []);
 
   return (
-    <div className="p-6 space-y-6 h-full overflow-auto">
-      <PageHeader 
-        title="System Settings" 
-        description="Configure system-wide settings for VisionHub One Sentinel"
+    <>
+      <PageHeader
+        heading="Settings"
+        subheading="Configure system preferences and manage your VisionHub"
       />
       
-      {loading ? (
-        <div className="flex items-center justify-center py-8">
-          <Loader2 className="h-8 w-8 animate-spin text-sentinel-purple" />
-        </div>
-      ) : (
-        <SettingsForm 
-          settings={settings}
-          diagnostics={diagnostics}
-          onSave={saveSettings}
-          onCheckUpdate={checkForUpdates}
-          onBackup={handleBackup}
-          onRestore={handleRestore}
-          onRefreshDiagnostics={fetchDiagnostics}
-        />
-      )}
-    </div>
+      <Tabs defaultValue="general" className="mt-6">
+        <TabsList className="grid w-full grid-cols-2 md:grid-cols-6 mb-8 lg:w-fit">
+          <TabsTrigger value="general">General</TabsTrigger>
+          <TabsTrigger value="alerts">Alerts</TabsTrigger>
+          <TabsTrigger value="backups">Backups</TabsTrigger>
+          <TabsTrigger value="security">Security</TabsTrigger>
+          {isAdmin && <TabsTrigger value="users">Users</TabsTrigger>}
+          <TabsTrigger value="system">System</TabsTrigger>
+        </TabsList>
+        
+        <TabsContent value="general" className="space-y-6">
+          <SettingsForm />
+        </TabsContent>
+        
+        <TabsContent value="alerts" className="space-y-6">
+          <AlertSettings />
+        </TabsContent>
+        
+        <TabsContent value="backups" className="space-y-6">
+          <BackupSettings />
+        </TabsContent>
+        
+        <TabsContent value="security" className="space-y-6">
+          <SSLSettings />
+        </TabsContent>
+        
+        {isAdmin && (
+          <TabsContent value="users" className="space-y-6">
+            <UserManagement />
+          </TabsContent>
+        )}
+        
+        <TabsContent value="system" className="space-y-6">
+          <div className="grid gap-6 md:grid-cols-2">
+            <DiagnosticsCard diagnostics={diagnostics} onRefresh={fetchDiagnostics} />
+            <SystemUpdateCard />
+          </div>
+        </TabsContent>
+      </Tabs>
+    </>
   );
 };
 
