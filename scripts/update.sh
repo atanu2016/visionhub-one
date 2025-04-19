@@ -19,7 +19,7 @@ if [ "$EUID" -ne 0 ]; then
   exit 1
 fi
 
-INSTALL_DIR="/opt/visionhub/visionhub-one-sentinel"
+INSTALL_DIR="/opt/visionhub-sentinel"
 echo "Updating VisionHub One Sentinel..."
 
 # Check if installation directory exists
@@ -65,5 +65,5 @@ echo "  VisionHub One Sentinel updated successfully!"
 echo "============================================"
 echo ""
 echo "* Service status: $(systemctl is-active visionhub.service)"
-echo "* Access the web interface at: http://$(hostname -I | awk '{print $1}'):3000"
+echo "* Access the web interface at: http://$(hostname -I | awk '{print $1}')"
 echo "============================================"

@@ -24,4 +24,4 @@ fi
 
 # Start the server
 echo "Starting VisionHub One Sentinel..."
-node server.js
+node backend/index.js

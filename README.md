@@ -1,73 +1,209 @@
-# Welcome to your Lovable project
 
-## Project info
+# VisionHub One Sentinel
 
-**URL**: https://lovable.dev/projects/ec9fceac-56ac-45ea-bb4d-d487efea3a04
+VisionHub One Sentinel is a comprehensive surveillance system management platform designed for small to medium-sized deployments. It provides camera management, recording, motion detection, and system monitoring capabilities through a user-friendly web interface.
 
-## How can I edit this code?
+## System Requirements
 
-There are several ways of editing your application.
+- Ubuntu Server 22.04 LTS (or compatible Linux distribution)
+- 4GB RAM minimum (8GB+ recommended)
+- 4 CPU cores minimum
+- 20GB storage for OS and application
+- Additional storage for recordings (depends on your needs)
+- Network connectivity to your camera system
 
-**Use Lovable**
+## Installation
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/ec9fceac-56ac-45ea-bb4d-d487efea3a04) and start prompting.
+### Automated Installation
 
-Changes made via Lovable will be committed automatically to this repo.
+The easiest way to install VisionHub One Sentinel is using the provided installation script:
 
-**Use your preferred IDE**
+```bash
+# Download the installation package
+wget https://example.com/visionhub-sentinel.tar.gz
+tar -xzf visionhub-sentinel.tar.gz
+cd visionhub-sentinel
 
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
-
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
-
-Follow these steps:
-
-```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
-
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
-
-# Step 3: Install the necessary dependencies.
-npm i
-
-# Step 4: Start the development server with auto-reloading and an instant preview.
-npm run dev
+# Run the installer (as root)
+sudo ./scripts/install.sh
 ```
 
-**Edit a file directly in GitHub**
+The installer will:
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+1. Install all required system dependencies (Node.js, ffmpeg, sqlite3, etc.)
+2. Create necessary directories
+3. Build the frontend
+4. Configure NGINX as a web server
+5. Set up the backend as a systemd service
+6. Generate self-signed SSL certificates
+7. Create a default admin user
 
-**Use GitHub Codespaces**
+### Installation Options
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+The installer supports several options:
 
-## What technologies are used for this project?
+```bash
+sudo ./scripts/install.sh [OPTIONS]
 
-This project is built with:
+Options:
+  -d, --directory DIR    Installation directory (default: /opt/visionhub-sentinel)
+  -p, --port PORT        Frontend port (default: 80)
+  -b, --backend-port PORT Backend port (default: 3000)
+  --help                 Show this help
+```
 
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
+## Accessing the System
 
-## How can I deploy this project?
+After installation, you can access VisionHub One Sentinel through your web browser:
 
-Simply open [Lovable](https://lovable.dev/projects/ec9fceac-56ac-45ea-bb4d-d487efea3a04) and click on Share -> Publish.
+```
+http://YOUR_SERVER_IP
+```
 
-## Can I connect a custom domain to my Lovable project?
+### Default Login
 
-Yes, you can!
+The system is pre-configured with a default administrator account:
 
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
+- Username: `admin`
+- Password: `Admin123!`
 
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/tips-tricks/custom-domain#step-by-step-guide)
+**IMPORTANT**: Change the default password immediately after your first login.
+
+## Configuration Guide
+
+### Changing the Default Admin Password
+
+1. Log in with the default credentials
+2. Go to the Settings page
+3. Click on "User Management"
+4. Select the admin user
+5. Click "Change Password"
+6. Enter and confirm your new password
+
+### Adding Cameras
+
+VisionHub supports multiple methods to add cameras:
+
+1. **Automatic Discovery**:
+   - Go to Cameras page
+   - Click "Discover" button
+   - Enter your network subnet (e.g., 192.168.1.0/24)
+   - Select cameras from the discovered list
+
+2. **Manual Addition**:
+   - Go to Cameras page
+   - Click "Add Camera"
+   - Enter the camera details:
+     - Name
+     - IP address
+     - RTSP/RTMP URL
+     - Login credentials (if required)
+
+### Configuring Storage
+
+VisionHub supports both local and network storage:
+
+1. **Local Storage**:
+   - Default: `/var/visionhub/recordings`
+   - To change, go to Settings → Storage
+
+2. **NAS/SMB/CIFS Storage**:
+   - Go to Settings → Storage
+   - Select "Network Storage"
+   - Enter:
+     - Server path (e.g., `//192.168.1.100/surveillance`)
+     - Username and password (if required)
+     - Click "Test Connection" before saving
+
+### Configuring SSL
+
+The system automatically generates self-signed certificates during installation. To use your own certificates:
+
+1. Go to Settings → System → SSL Configuration
+2. Upload your certificate and private key files
+3. Enable SSL
+4. The system will restart with HTTPS enabled
+
+### Setting Up Email Alerts
+
+To receive notifications about system events:
+
+1. Go to Settings → Alerts
+2. Configure SMTP settings:
+   - SMTP server address
+   - Port
+   - Username and password (if required)
+   - Sender email address
+3. Add recipient email addresses
+4. Select which events trigger alerts
+5. Click "Test" to verify your configuration
+
+## System Maintenance
+
+### Viewing Logs
+
+```bash
+# Backend service logs
+sudo journalctl -u visionhub -f
+
+# Detailed logs
+sudo cat /var/log/visionhub/visionhub.log
+
+# Error logs
+sudo cat /var/log/visionhub/visionhub-error.log
+
+# Web server logs
+sudo cat /var/log/visionhub/nginx-access.log
+sudo cat /var/log/visionhub/nginx-error.log
+```
+
+### Backing Up the System
+
+1. Go to Settings → System → Backup & Restore
+2. Click "Create Backup"
+3. Download the backup file to a safe location
+
+### Restoring from Backup
+
+1. Go to Settings → System → Backup & Restore
+2. Click "Restore Backup"
+3. Select your backup file
+4. Confirm the restoration
+
+### Updating the System
+
+```bash
+# Run the update script
+sudo ./scripts/update.sh
+```
+
+## Troubleshooting
+
+### Common Issues
+
+1. **Camera Connection Failures**
+   - Check if the camera is reachable (ping the IP address)
+   - Verify RTSP/RTMP URL format
+   - Check username and password
+   - Ensure port 554 (RTSP) is accessible
+
+2. **Recording Issues**
+   - Check storage permissions
+   - Verify available disk space
+   - Check ffmpeg logs for encoding errors
+
+3. **Web Interface Not Accessible**
+   - Verify NGINX is running: `systemctl status nginx`
+   - Check backend service: `systemctl status visionhub`
+   - Verify firewall settings allow access to frontend port
+
+4. **Email Alerts Not Working**
+   - Check SMTP settings
+   - Verify sendmail is running: `systemctl status sendmail`
+   - Check for email logs: `tail -f /var/log/mail.log`
+
+For additional support, please create an issue in the GitHub repository.
+
+## License
+
+VisionHub One Sentinel is licensed under [LICENSE NAME]. See LICENSE file for details.
