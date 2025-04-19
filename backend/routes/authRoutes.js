@@ -1,27 +1,51 @@
-
 const express = require('express');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const { v4: uuidv4 } = require('uuid');
+const rateLimit = require('express-rate-limit');
 const authMiddleware = require('../middleware/authMiddleware');
 const adminMiddleware = require('../middleware/adminMiddleware');
 
 const router = express.Router();
-
-// Secret key for JWT
 const JWT_SECRET = process.env.JWT_SECRET || 'visionhub-sentinel-secret-key';
-const JWT_EXPIRY = '24h'; // Token expires in 24 hours
+const JWT_EXPIRY = '24h';
 
-// Login route
-router.post('/login', async (req, res) => {
+// Create login rate limiter
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 5, // limit each IP to 5 requests per windowMs
+  message: 'Too many login attempts, please try again after 15 minutes',
+  standardHeaders: true,
+  legacyHeaders: false
+});
+
+// Password validation function
+const validatePassword = (password) => {
+  const minLength = 8;
+  const hasLetter = /[a-zA-Z]/.test(password);
+  const hasNumber = /[0-9]/.test(password);
+  const hasSymbol = /[!@#$%^&*(),.?":{}|<>]/.test(password);
+  
+  const errors = [];
+  if (password.length < minLength) errors.push(`Password must be at least ${minLength} characters long`);
+  if (!hasLetter) errors.push('Password must contain at least one letter');
+  if (!hasNumber) errors.push('Password must contain at least one number');
+  if (!hasSymbol) errors.push('Password must contain at least one symbol');
+  
+  return errors;
+};
+
+// Login route with rate limiting
+router.post('/login', loginLimiter, async (req, res) => {
   const { username, password } = req.body;
+  const clientIp = req.ip;
 
   if (!username || !password) {
     return res.status(400).json({ error: 'Username and password required' });
   }
 
   try {
-    // Find user in database
+    // Find user and check if account is locked
     req.db.get('SELECT * FROM users WHERE username = ?', [username], async (err, user) => {
       if (err) {
         console.error('Database error:', err);
@@ -32,22 +56,51 @@ router.post('/login', async (req, res) => {
         return res.status(401).json({ error: 'Invalid credentials' });
       }
 
+      // Check if account is locked
+      if (user.login_attempts >= 5 && user.lockout_until && new Date(user.lockout_until) > new Date()) {
+        return res.status(403).json({ 
+          error: 'Account is locked. Please try again later or contact administrator' 
+        });
+      }
+
       // Compare password
       const passwordMatch = await bcrypt.compare(password, user.password);
       if (!passwordMatch) {
+        // Increment failed login attempts
+        const attempts = (user.login_attempts || 0) + 1;
+        const lockoutUntil = attempts >= 5 ? new Date(Date.now() + 30 * 60000) : null; // 30 minutes lockout
+
+        req.db.run(
+          'UPDATE users SET login_attempts = ?, lockout_until = ? WHERE id = ?',
+          [attempts, lockoutUntil, user.id]
+        );
+
         return res.status(401).json({ error: 'Invalid credentials' });
       }
 
-      // Update last login
-      req.db.run('UPDATE users SET last_login = ? WHERE id = ?', [new Date().toISOString(), user.id]);
+      // Reset login attempts on successful login
+      req.db.run(
+        'UPDATE users SET login_attempts = 0, lockout_until = NULL, last_login = ?, last_login_ip = ? WHERE id = ?',
+        [new Date().toISOString(), clientIp, user.id]
+      );
+
+      // Check if this IP is new for this user
+      if (user.last_login_ip && user.last_login_ip !== clientIp) {
+        // Send email alert using sendmail
+        const { exec } = require('child_process');
+        const emailContent = `New login detected for user ${username} from IP ${clientIp}`;
+        const emailCommand = `echo "${emailContent}" | sendmail -t "${user.email}"`;
+        
+        exec(emailCommand, (error) => {
+          if (error) {
+            console.error('Error sending email:', error);
+          }
+        });
+      }
 
       // Generate JWT token
       const token = jwt.sign(
-        { 
-          id: user.id, 
-          username: user.username, 
-          role: user.role 
-        },
+        { id: user.id, username: user.username, role: user.role },
         JWT_SECRET,
         { expiresIn: JWT_EXPIRY }
       );
@@ -59,7 +112,7 @@ router.post('/login', async (req, res) => {
         eventId,
         new Date().toISOString(),
         'user_login',
-        `User ${user.username} logged in`,
+        `User ${user.username} logged in from IP ${clientIp}`,
         'info'
       ]);
 
@@ -67,11 +120,10 @@ router.post('/login', async (req, res) => {
       res.cookie('token', token, {
         httpOnly: true,
         secure: req.secure || req.headers['x-forwarded-proto'] === 'https',
-        maxAge: 24 * 60 * 60 * 1000, // 24 hours
+        maxAge: 24 * 60 * 60 * 1000,
         sameSite: 'strict'
       });
 
-      // Return user info (without password)
       const { password: _, ...userWithoutPassword } = user;
       return res.json({ 
         user: userWithoutPassword,
@@ -97,6 +149,12 @@ router.post('/register', authMiddleware, adminMiddleware, async (req, res) => {
 
   if (!username || !password) {
     return res.status(400).json({ error: 'Username and password required' });
+  }
+
+  // Validate password complexity
+  const passwordErrors = validatePassword(password);
+  if (passwordErrors.length > 0) {
+    return res.status(400).json({ error: passwordErrors.join(', ') });
   }
 
   try {

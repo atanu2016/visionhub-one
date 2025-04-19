@@ -6,7 +6,10 @@ CREATE TABLE IF NOT EXISTS users (
   email TEXT UNIQUE,
   role TEXT NOT NULL DEFAULT 'user',
   created_at TEXT NOT NULL,
-  last_login TEXT
+  last_login TEXT,
+  last_login_ip TEXT,
+  login_attempts INTEGER DEFAULT 0,
+  lockout_until TEXT
 );
 
 -- Create initial admin user if it doesn't exist
