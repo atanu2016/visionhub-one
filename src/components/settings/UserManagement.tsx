@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
-import { UserPlus, Users, AlertTriangle, Shield } from 'lucide-react';
+import { UserPlus, Users, AlertTriangle, Shield, RefreshCcw } from 'lucide-react';
 
 interface User {
   id: string;
@@ -32,6 +32,7 @@ const UserManagement: React.FC = () => {
 
   const fetchUsers = async () => {
     try {
+      setLoading(true);
       const response = await fetch('/api/auth/users', {
         headers: {
           Authorization: `Bearer ${token}`
@@ -64,6 +65,37 @@ const UserManagement: React.FC = () => {
     navigate('/register');
   };
 
+  const handleDeleteUser = async (userId: string, username: string) => {
+    try {
+      const response = await fetch(`/api/auth/users/${userId}`, {
+        method: 'DELETE',
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to delete user');
+      }
+
+      toast({
+        title: "User Deleted",
+        description: `User ${username} has been removed successfully`,
+      });
+      
+      // Refresh the user list
+      fetchUsers();
+    } catch (error) {
+      console.error('Error deleting user:', error);
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to delete user",
+        variant: "destructive",
+      });
+    }
+  };
+
   return (
     <Card className="shadow-sm border">
       <CardHeader>
@@ -72,13 +104,23 @@ const UserManagement: React.FC = () => {
             <Users className="h-5 w-5" />
             User Management
           </div>
-          <Button 
-            onClick={handleAddUser}
-            className="bg-[hsl(var(--sentinel-purple))] hover:bg-[hsl(var(--sentinel-purple))]/90"
-          >
-            <UserPlus className="h-4 w-4 mr-2" />
-            Add User
-          </Button>
+          <div className="flex gap-2">
+            <Button 
+              variant="outline"
+              onClick={fetchUsers}
+              className="flex items-center gap-1"
+            >
+              <RefreshCcw className="h-4 w-4" />
+              Refresh
+            </Button>
+            <Button 
+              onClick={handleAddUser}
+              className="bg-[hsl(var(--sentinel-purple))] hover:bg-[hsl(var(--sentinel-purple))]/90"
+            >
+              <UserPlus className="h-4 w-4 mr-2" />
+              Add User
+            </Button>
+          </div>
         </CardTitle>
         <CardDescription>
           Manage user accounts and access permissions
@@ -156,7 +198,10 @@ const UserManagement: React.FC = () => {
                             </AlertDialogHeader>
                             <AlertDialogFooter>
                               <AlertDialogCancel>Cancel</AlertDialogCancel>
-                              <AlertDialogAction className="bg-destructive">
+                              <AlertDialogAction 
+                                className="bg-destructive"
+                                onClick={() => handleDeleteUser(user.id, user.username)}
+                              >
                                 Remove
                               </AlertDialogAction>
                             </AlertDialogFooter>

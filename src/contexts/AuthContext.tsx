@@ -83,21 +83,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         headers: {
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ username, password })
+        body: JSON.stringify({ username, password }),
+        credentials: 'include' // Important for cookies
       });
 
-      const data = await response.json();
-
       if (!response.ok) {
+        const errorData = await response.json();
         toast({
           title: "Login Failed",
-          description: data.error || "Invalid username or password",
+          description: errorData.error || "Invalid username or password",
           variant: "destructive",
         });
         setIsLoading(false);
         return false;
       }
 
+      const data = await response.json();
       setToken(data.token);
       setUser(data.user);
       setIsLoading(false);
@@ -125,7 +126,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`
-        }
+        },
+        credentials: 'include' // Important for cookies
       });
     } catch (error) {
       console.error('Logout error:', error);

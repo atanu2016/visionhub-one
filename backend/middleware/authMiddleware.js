@@ -24,11 +24,23 @@ function authMiddleware(req, res, next) {
     // Verify token
     const decoded = jwt.verify(token, JWT_SECRET);
     
-    // Add user data to request
-    req.user = decoded;
-    
-    // Continue to next middleware
-    next();
+    // Check if user still exists in database
+    req.db.get('SELECT id, username, email, role FROM users WHERE id = ?', [decoded.id], (err, user) => {
+      if (err) {
+        console.error('Database error:', err);
+        return res.status(500).json({ error: 'Internal server error' });
+      }
+      
+      if (!user) {
+        return res.status(401).json({ error: 'User no longer exists' });
+      }
+      
+      // Add user data to request
+      req.user = user;
+      
+      // Continue to next middleware
+      next();
+    });
   } catch (error) {
     console.error('JWT verification error:', error);
     if (error.name === 'TokenExpiredError') {

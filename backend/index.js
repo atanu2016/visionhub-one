@@ -30,7 +30,20 @@ const { initializeDatabase } = require('./utils/databaseInit');
 
 // Configure environment variables
 const PORT = process.env.PORT || 3000;
-const DB_PATH = process.env.DB_PATH || path.join(__dirname, '../db/visionhub.db');
+// Set the database path to /var/visionhub/db/users.db
+const DB_PATH = process.env.DB_PATH || '/var/visionhub/db/users.db';
+
+// Create DB directory if it doesn't exist
+const dbDir = path.dirname(DB_PATH);
+if (!fs.existsSync(dbDir)) {
+  try {
+    fs.mkdirSync(dbDir, { recursive: true });
+    console.log(`Created database directory at ${dbDir}`);
+  } catch (err) {
+    console.error(`Failed to create database directory at ${dbDir}:`, err);
+    // Continue with fallback to project directory
+  }
+}
 
 // Initialize Express app
 const app = express();

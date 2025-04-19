@@ -1,3 +1,4 @@
+
 const express = require('express');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
@@ -89,20 +90,6 @@ router.post('/login', loginLimiter, async (req, res) => {
         [new Date().toISOString(), clientIp, user.id]
       );
 
-      // Check if this IP is new for this user
-      if (user.last_login_ip && user.last_login_ip !== clientIp) {
-        // Send email alert using sendmail
-        const { exec } = require('child_process');
-        const emailContent = `New login detected for user ${username} from IP ${clientIp}`;
-        const emailCommand = `echo "${emailContent}" | sendmail -t "${user.email}"`;
-        
-        exec(emailCommand, (error) => {
-          if (error) {
-            console.error('Error sending email:', error);
-          }
-        });
-      }
-
       // Generate JWT token
       const token = jwt.sign(
         { id: user.id, username: user.username, role: user.role },
@@ -174,49 +161,127 @@ router.post('/register', authMiddleware, adminMiddleware, async (req, res) => {
         return res.status(409).json({ error: 'Username already exists' });
       }
 
-      // Hash password
-      const saltRounds = 10;
-      const hashedPassword = await bcrypt.hash(password, saltRounds);
-
-      // Create new user
-      const userId = uuidv4();
-      req.db.run(
-        'INSERT INTO users (id, username, password, email, role, created_at) VALUES (?, ?, ?, ?, ?, ?)',
-        [userId, username, hashedPassword, email, role, new Date().toISOString()],
-        function(err) {
+      // Check if email is already taken
+      if (email) {
+        req.db.get('SELECT id FROM users WHERE email = ?', [email], async (err, existingEmail) => {
           if (err) {
-            console.error('Error creating user:', err);
-            return res.status(500).json({ error: 'Failed to create user' });
+            console.error('Database error:', err);
+            return res.status(500).json({ error: 'Internal server error' });
           }
 
-          // Log user creation
-          const eventId = uuidv4();
-          req.db.run(`INSERT INTO events (id, timestamp, event_type, message, severity) 
-                    VALUES (?, ?, ?, ?, ?)`, [
-            eventId,
-            new Date().toISOString(),
-            'user_created',
-            `User ${username} created by ${req.user.username}`,
-            'info'
-          ]);
+          if (existingEmail) {
+            return res.status(409).json({ error: 'Email already exists' });
+          }
 
-          return res.status(201).json({
-            message: 'User registered successfully',
-            user: {
-              id: userId,
-              username,
-              email,
-              role,
-              created_at: new Date().toISOString()
+          // Continue with user creation
+          createUser();
+        });
+      } else {
+        // Continue with user creation
+        createUser();
+      }
+
+      async function createUser() {
+        // Hash password
+        const saltRounds = 10;
+        const hashedPassword = await bcrypt.hash(password, saltRounds);
+
+        // Create new user
+        const userId = uuidv4();
+        const now = new Date().toISOString();
+        
+        req.db.run(
+          'INSERT INTO users (id, username, password, email, role, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+          [userId, username, hashedPassword, email, role, now, now],
+          function(err) {
+            if (err) {
+              console.error('Error creating user:', err);
+              return res.status(500).json({ error: 'Failed to create user' });
             }
-          });
-        }
-      );
+
+            // Log user creation
+            const eventId = uuidv4();
+            req.db.run(`INSERT INTO events (id, timestamp, event_type, message, severity) 
+                      VALUES (?, ?, ?, ?, ?)`, [
+              eventId,
+              new Date().toISOString(),
+              'user_created',
+              `User ${username} created by ${req.user.username}`,
+              'info'
+            ]);
+
+            return res.status(201).json({
+              message: 'User registered successfully',
+              user: {
+                id: userId,
+                username,
+                email,
+                role,
+                created_at: now,
+                updated_at: now
+              }
+            });
+          }
+        );
+      }
     });
   } catch (error) {
     console.error('Registration error:', error);
     return res.status(500).json({ error: 'Internal server error' });
   }
+});
+
+// Delete user (admin only)
+router.delete('/users/:id', authMiddleware, adminMiddleware, (req, res) => {
+  const userId = req.params.id;
+  
+  // Prevent deleting the main admin account
+  if (userId === 'admin') {
+    return res.status(403).json({ error: 'Cannot delete the primary admin account' });
+  }
+  
+  // Prevent users from deleting themselves
+  if (userId === req.user.id) {
+    return res.status(403).json({ error: 'Cannot delete your own account' });
+  }
+  
+  req.db.get('SELECT username FROM users WHERE id = ?', [userId], (err, user) => {
+    if (err) {
+      console.error('Database error:', err);
+      return res.status(500).json({ error: 'Internal server error' });
+    }
+    
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    
+    const username = user.username;
+    
+    // Delete the user
+    req.db.run('DELETE FROM users WHERE id = ?', [userId], function(err) {
+      if (err) {
+        console.error('Error deleting user:', err);
+        return res.status(500).json({ error: 'Failed to delete user' });
+      }
+      
+      if (this.changes === 0) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+      
+      // Log user deletion
+      const eventId = uuidv4();
+      req.db.run(`INSERT INTO events (id, timestamp, event_type, message, severity) 
+                VALUES (?, ?, ?, ?, ?)`, [
+        eventId,
+        new Date().toISOString(),
+        'user_deleted',
+        `User ${username} deleted by ${req.user.username}`,
+        'warning'
+      ]);
+      
+      return res.json({ message: 'User deleted successfully' });
+    });
+  });
 });
 
 // Get current user info
@@ -226,7 +291,7 @@ router.get('/me', authMiddleware, (req, res) => {
 
 // Get all users (admin only)
 router.get('/users', authMiddleware, adminMiddleware, (req, res) => {
-  req.db.all('SELECT id, username, email, role, created_at, last_login FROM users', [], (err, users) => {
+  req.db.all('SELECT id, username, email, role, created_at, updated_at, last_login FROM users', [], (err, users) => {
     if (err) {
       console.error('Database error:', err);
       return res.status(500).json({ error: 'Internal server error' });
