@@ -3,13 +3,14 @@
 
 # VisionHub One Sentinel Installation Script
 # For Ubuntu 22.04 LTS Server
+# Version 1.2
 
 # Exit on any error
 set -e
 
 # Print header
 echo "============================================"
-echo "  VisionHub One Sentinel Installer"
+echo "  VisionHub One Sentinel Installer v1.2"
 echo "============================================"
 echo ""
 
@@ -30,6 +31,7 @@ FRONTEND_PORT=80
 BACKEND_PORT=3000
 REPO_URL="https://github.com/yourusername/visionhub-sentinel.git"
 NODE_VERSION="18.x"
+INSTALL_LOG="$LOG_DIR/install.log"
 
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
@@ -65,6 +67,16 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+# Function to log messages
+log_message() {
+  local msg="$1"
+  local timestamp=$(date +"%Y-%m-%d %H:%M:%S")
+  echo "[$timestamp] $msg"
+  if [ -d "$LOG_DIR" ]; then
+    echo "[$timestamp] $msg" >> "$INSTALL_LOG"
+  fi
+}
+
 echo "VisionHub One Sentinel will be installed with these settings:"
 echo "- Installation directory: $INSTALL_DIR"
 echo "- Storage directory: $STORAGE_DIR"
@@ -78,32 +90,33 @@ echo "Press Enter to continue or Ctrl+C to cancel..."
 read -r
 
 # Create directories
-echo "Creating directories..."
+log_message "Creating directories..."
 mkdir -p "$INSTALL_DIR"
 mkdir -p "$STORAGE_DIR"
 mkdir -p "$DB_DIR"
 mkdir -p "$RECORDINGS_DIR"
 mkdir -p "$LOG_DIR"
 mkdir -p "$INSTALL_DIR/ssl"
+touch "$INSTALL_LOG"
 
 # Set proper permissions early
 chmod -R 777 "$STORAGE_DIR"
 chmod -R 777 "$LOG_DIR"
 
 # Install dependencies
-echo "Updating system and installing dependencies..."
+log_message "Updating system and installing dependencies..."
 apt-get update
 apt-get upgrade -y
 
 # Install Node.js
-echo "Installing Node.js $NODE_VERSION..."
+log_message "Installing Node.js $NODE_VERSION..."
 if ! command -v node &> /dev/null; then
   curl -fsSL "https://deb.nodesource.com/setup_$NODE_VERSION" | bash -
   apt-get install -y nodejs
 fi
 
 # Install required packages
-echo "Installing required packages..."
+log_message "Installing required packages..."
 apt-get install -y \
   ffmpeg \
   sqlite3 \
@@ -117,45 +130,54 @@ apt-get install -y \
   openssl \
   net-tools \
   nmap \
-  iproute2
+  iproute2 || {
+    log_message "ERROR: Failed to install required packages."
+    exit 1
+  }
 
 # Check if the code repository exists (local or git)
 if [ -f "./package.json" ]; then
-  echo "Using local files for installation..."
+  log_message "Using local files for installation..."
   cp -r ./* "$INSTALL_DIR/"
   cp -r ./.* "$INSTALL_DIR/" 2>/dev/null || true
 elif [ -d ".git" ]; then
-  echo "Using local git repository for installation..."
+  log_message "Using local git repository for installation..."
   cp -r ./* "$INSTALL_DIR/"
   cp -r ./.* "$INSTALL_DIR/" 2>/dev/null || true
 else
-  echo "Cloning repository..."
+  log_message "Cloning repository..."
   # For a real installation, you would use git clone
   # git clone $REPO_URL "$INSTALL_DIR"
-  echo "NOTE: In this demo, we're using local files. In a real installation, you would clone from a git repository."
+  log_message "NOTE: In this demo, we're using local files. In a real installation, you would clone from a git repository."
   cp -r ./* "$INSTALL_DIR/"
   cp -r ./.* "$INSTALL_DIR/" 2>/dev/null || true
 fi
 
 # Navigate to the installation directory
 cd "$INSTALL_DIR" || { 
-  echo "Failed to change to installation directory"
+  log_message "Failed to change to installation directory"
   exit 1
 }
 
 # Install npm dependencies
-echo "Installing npm dependencies..."
-npm install || {
-  echo "Failed to install npm dependencies. Trying with --force..."
-  npm install --force
+log_message "Installing npm dependencies..."
+npm install --no-optional || {
+  log_message "Failed to install npm dependencies. Trying with --force..."
+  npm install --no-optional --force || {
+    log_message "ERROR: Failed to install npm dependencies even with --force. Check packages."
+    exit 1
+  }
 }
 
 # Build the frontend
-echo "Building frontend..."
-npm run build
+log_message "Building frontend..."
+npm run build || {
+  log_message "ERROR: Failed to build frontend."
+  exit 1
+}
 
 # Create environment file for backend
-echo "Creating environment configuration..."
+log_message "Creating environment configuration..."
 cat > "$INSTALL_DIR/.env" << EOL
 NODE_ENV=production
 PORT=$BACKEND_PORT
@@ -166,7 +188,7 @@ JWT_SECRET=$(openssl rand -base64 32)
 EOL
 
 # Set up NGINX configuration
-echo "Setting up NGINX configuration..."
+log_message "Setting up NGINX configuration..."
 cat > /etc/nginx/sites-available/visionhub << EOL
 server {
     listen $FRONTEND_PORT default_server;
@@ -206,12 +228,15 @@ server {
 EOL
 
 # Enable the NGINX site
-ln -sf /etc/nginx/sites-available/visionhub /etc/nginx/sites-enabled/
-rm -f /etc/nginx/sites-enabled/default
-nginx -t && systemctl restart nginx
+ln -sf /etc/nginx/sites-available/visionhub /etc/nginx/sites-enabled/ || log_message "Failed to create symbolic link"
+rm -f /etc/nginx/sites-enabled/default || log_message "Failed to remove default site"
+nginx -t && systemctl restart nginx || {
+  log_message "ERROR: NGINX configuration test failed or restart failed."
+  exit 1
+}
 
 # Create systemd service file
-echo "Creating systemd service..."
+log_message "Creating systemd service..."
 cat > /etc/systemd/system/visionhub.service << EOL
 [Unit]
 Description=VisionHub One Sentinel
@@ -229,6 +254,7 @@ Environment=LOG_PATH=$LOG_DIR
 Environment=JWT_SECRET=$(openssl rand -base64 32)
 ExecStart=/usr/bin/node $INSTALL_DIR/backend/index.js
 Restart=on-failure
+RestartSec=10s
 StandardOutput=append:$LOG_DIR/visionhub.log
 StandardError=append:$LOG_DIR/visionhub-error.log
 
@@ -236,33 +262,71 @@ StandardError=append:$LOG_DIR/visionhub-error.log
 WantedBy=multi-user.target
 EOL
 
-# Enable and start the service
-echo "Enabling and starting VisionHub service..."
-systemctl daemon-reload
-systemctl enable visionhub
-systemctl start visionhub || {
-  echo "Failed to start visionhub service. Checking logs..."
-  journalctl -u visionhub -n 50
-  exit 1
+# Initialize the database directory and files
+log_message "Initializing database..."
+sqlite3 "$DB_DIR/visionhub.db" ".databases" || {
+  log_message "WARNING: Failed to create initial database. Will be created on first run."
 }
 
-# Set proper permissions
-echo "Setting permissions..."
+# Ensure proper permissions on files
+log_message "Setting permissions..."
 chown -R root:root "$INSTALL_DIR"
 chmod -R 755 "$INSTALL_DIR"
 chmod -R 777 "$STORAGE_DIR"
 chmod -R 777 "$LOG_DIR"
 
 # Generate a self-signed SSL certificate
-echo "Generating self-signed SSL certificate..."
+log_message "Generating self-signed SSL certificate..."
 openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
   -keyout "$INSTALL_DIR/ssl/visionhub.key" \
   -out "$INSTALL_DIR/ssl/visionhub.crt" \
-  -subj "/CN=visionhub.local"
+  -subj "/CN=visionhub.local" || {
+    log_message "WARNING: Failed to generate SSL certificate."
+  }
+
+# Create the initial SQL database
+log_message "Initializing database with SQL..."
+if [ -f "$INSTALL_DIR/backend/migrations/init.sql" ]; then
+  cat "$INSTALL_DIR/backend/migrations/init.sql" | sqlite3 "$DB_DIR/visionhub.db" || {
+    log_message "WARNING: Failed to execute init.sql. Will be handled by application."
+  }
+else
+  log_message "WARNING: init.sql not found. Database will be initialized by the application."
+fi
+
+if [ -f "$INSTALL_DIR/backend/migrations/auth.sql" ]; then
+  cat "$INSTALL_DIR/backend/migrations/auth.sql" | sqlite3 "$DB_DIR/visionhub.db" || {
+    log_message "WARNING: Failed to execute auth.sql. Will be handled by application."
+  }
+else
+  log_message "WARNING: auth.sql not found. User tables will be initialized by the application."
+fi
 
 # Update the database with the SSL certificate paths
-sqlite3 "$DB_DIR/visionhub.db" "CREATE TABLE IF NOT EXISTS settings (id TEXT PRIMARY KEY, ssl_enabled INTEGER, ssl_cert_path TEXT, ssl_key_path TEXT);"
-sqlite3 "$DB_DIR/visionhub.db" "INSERT OR REPLACE INTO settings (id, ssl_enabled, ssl_cert_path, ssl_key_path) VALUES ('1', 0, '/ssl/visionhub.crt', '/ssl/visionhub.key');"
+sqlite3 "$DB_DIR/visionhub.db" "CREATE TABLE IF NOT EXISTS settings (id TEXT PRIMARY KEY, ssl_enabled INTEGER, ssl_cert_path TEXT, ssl_key_path TEXT);" || {
+  log_message "WARNING: Failed to create settings table. Will be handled by application."
+}
+sqlite3 "$DB_DIR/visionhub.db" "INSERT OR REPLACE INTO settings (id, ssl_enabled, ssl_cert_path, ssl_key_path) VALUES ('1', 0, '/ssl/visionhub.crt', '/ssl/visionhub.key');" || {
+  log_message "WARNING: Failed to insert SSL settings. Will be handled by application."
+}
+
+# Enable and start the service with better error handling
+log_message "Enabling and starting VisionHub service..."
+systemctl daemon-reload
+systemctl enable visionhub
+
+log_message "Starting VisionHub service. This may take a moment..."
+systemctl start visionhub || {
+  log_message "WARNING: Service failed to start on first attempt. Waiting 5 seconds and trying again..."
+  sleep 5
+  systemctl start visionhub || {
+    log_message "ERROR: Failed to start visionhub service. Check logs with: journalctl -u visionhub -n 50"
+    journalctl -u visionhub -n 50 >> "$INSTALL_LOG"
+  }
+}
+
+# Wait for service to stabilize
+sleep 5
 
 # Final check and display IP information
 echo ""
@@ -300,5 +364,21 @@ echo "  $LOG_DIR/nginx-error.log"
 echo ""
 echo "Thank you for installing VisionHub One Sentinel!"
 echo "============================================"
+
+# If service isn't running properly, provide troubleshooting info
+if [ "$(systemctl is-active visionhub)" != "active" ]; then
+  echo ""
+  echo "WARNING: The VisionHub service is not running properly."
+  echo "Here are the most recent logs:"
+  echo ""
+  journalctl -u visionhub -n 20
+  echo ""
+  echo "Try the following troubleshooting steps:"
+  echo "1. Check logs: sudo journalctl -u visionhub -f"
+  echo "2. Try restarting: sudo systemctl restart visionhub"
+  echo "3. Check permissions on $DB_DIR and $LOG_DIR"
+  echo "4. Run start script directly: sudo $INSTALL_DIR/scripts/start.sh"
+  echo ""
+fi
 
 exit 0

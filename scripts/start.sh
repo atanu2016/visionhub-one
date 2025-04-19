@@ -3,6 +3,13 @@
 
 # VisionHub One Sentinel Startup Script
 
+# Exit on error
+set -e
+
+echo "========================================"
+echo "   VisionHub One Sentinel Startup"
+echo "========================================"
+
 # Set environment variables
 export NODE_ENV=production
 export PORT=${PORT:-3000}
@@ -23,12 +30,30 @@ DB_DIR=$(dirname "$DB_PATH")
 if [ ! -d "$DB_DIR" ]; then
   echo "Creating database directory: $DB_DIR"
   mkdir -p "$DB_DIR"
+  chmod -R 777 "$DB_DIR"
 fi
 
 # Check if storage directory exists, create if not
 if [ ! -d "$STORAGE_PATH" ]; then
   echo "Creating storage directory: $STORAGE_PATH"
   mkdir -p "$STORAGE_PATH"
+  chmod -R 777 "$STORAGE_PATH"
+fi
+
+# Create logs directory
+LOG_DIR="/var/log/visionhub"
+if [ ! -d "$LOG_DIR" ]; then
+  echo "Creating log directory: $LOG_DIR"
+  mkdir -p "$LOG_DIR" 
+  chmod -R 777 "$LOG_DIR"
+fi
+
+# Create SSL directory if it doesn't exist
+SSL_DIR="$PROJECT_ROOT/ssl"
+if [ ! -d "$SSL_DIR" ]; then
+  echo "Creating SSL directory: $SSL_DIR"
+  mkdir -p "$SSL_DIR"
+  chmod -R 755 "$SSL_DIR"
 fi
 
 # Change to project root directory
@@ -37,12 +62,25 @@ cd $PROJECT_ROOT || { echo "Failed to change to project directory"; exit 1; }
 # Check if the node_modules directory exists
 if [ ! -d "node_modules" ]; then
   echo "Installing dependencies..."
-  npm install || { echo "Failed to install dependencies"; exit 1; }
+  npm install --no-optional || { echo "Failed to install dependencies"; exit 1; }
 fi
+
+# Check if the dist directory exists
+if [ ! -d "dist" ]; then
+  echo "Building frontend..."
+  npm run build || { echo "Failed to build frontend"; exit 1; }
+fi
+
+# Create a temporary success file to track successful starts
+touch "$LOG_DIR/startup_in_progress"
 
 # Start the server with better error handling
 echo "Starting VisionHub One Sentinel backend server..."
-node backend/index.js 2>&1 | tee -a /var/log/visionhub/startup.log || {
-  echo "Failed to start server. Check logs at /var/log/visionhub/startup.log"
+node backend/index.js 2>&1 | tee -a "$LOG_DIR/startup.log" || {
+  echo "Failed to start server. Check logs at $LOG_DIR/startup.log"
   exit 1
 }
+
+# If execution gets to this point, remove the in-progress file
+rm -f "$LOG_DIR/startup_in_progress"
+touch "$LOG_DIR/startup_success"
