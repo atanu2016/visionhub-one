@@ -1,4 +1,3 @@
-
 const express = require('express');
 const { v4: uuidv4 } = require('uuid');
 const { isRecording, startRecording, stopRecording } = require('../utils/recordingEngine');
@@ -337,7 +336,14 @@ router.post('/onvif/discover', async (req, res) => {
 
 // POST /api/onvif/probe - Test connection to a specific camera
 router.post('/onvif/probe', async (req, res) => {
-  const { ipAddress, port, username, password } = req.body;
+  const { ipAddress, onvifPort, username, password } = req.body;
+  
+  if (!ipAddress) {
+    return res.status(400).json({
+      success: false,
+      error: 'IP address is required'
+    });
+  }
   
   try {
     const onvif = require('onvif');
@@ -345,15 +351,24 @@ router.post('/onvif/probe', async (req, res) => {
     // Create new cam instance
     const cam = new onvif.Cam({
       hostname: ipAddress,
-      port: port || 80,
+      port: onvifPort || 80,
       username: username || '',
       password: password || ''
     });
     
+    // Log event for probe attempt
+    const eventId = require('uuid').v4();
+    req.db.run(
+      `INSERT INTO events (id, timestamp, event_type, message, severity) 
+       VALUES (?, ?, ?, ?, ?)`,
+      [eventId, new Date().toISOString(), 'camera_probe', 
+       `ONVIF probe attempt for camera at ${ipAddress}:${onvifPort}`, 'info']
+    );
+    
     // Test connection with timeout
     const deviceInfo = await new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
-        reject(new Error('Connection timeout'));
+        reject(new Error('Connection timeout after 10 seconds'));
       }, 10000);
       
       cam.getDeviceInformation((err, info) => {
@@ -366,28 +381,114 @@ router.post('/onvif/probe', async (req, res) => {
       });
     });
     
-    // Get stream URI
-    const streamUri = await new Promise((resolve, reject) => {
-      cam.getStreamUri({ protocol: 'RTSP' }, (err, stream) => {
+    // Get capabilities
+    const capabilities = await new Promise((resolve, reject) => {
+      cam.getCapabilities((err, caps) => {
         if (err) {
-          reject(err);
+          console.warn(`Warning: Could not get capabilities: ${err.message}`);
+          resolve({});
           return;
         }
-        resolve(stream);
+        resolve(caps);
       });
     });
     
-    res.json({
+    // Get stream URI
+    let streamUri = null;
+    try {
+      streamUri = await new Promise((resolve, reject) => {
+        const streamTimeout = setTimeout(() => {
+          console.warn('Stream URI request timed out');
+          resolve(null);
+        }, 5000);
+        
+        cam.getStreamUri({ protocol: 'RTSP' }, (err, stream) => {
+          clearTimeout(streamTimeout);
+          if (err) {
+            console.warn(`Warning: Could not get stream URI: ${err.message}`);
+            resolve(null);
+            return;
+          }
+          resolve(stream);
+        });
+      });
+    } catch (streamError) {
+      console.warn(`Warning: Error getting stream URI: ${streamError.message}`);
+    }
+    
+    // Get profiles
+    let profiles = [];
+    try {
+      profiles = await new Promise((resolve, reject) => {
+        const profilesTimeout = setTimeout(() => {
+          console.warn('Profiles request timed out');
+          resolve([]);
+        }, 5000);
+        
+        cam.getProfiles((err, profilesList) => {
+          clearTimeout(profilesTimeout);
+          if (err) {
+            console.warn(`Warning: Could not get profiles: ${err.message}`);
+            resolve([]);
+            return;
+          }
+          resolve(profilesList);
+        });
+      });
+    } catch (profilesError) {
+      console.warn(`Warning: Error getting profiles: ${profilesError.message}`);
+    }
+    
+    // Create response object with gathered information
+    const response = {
       success: true,
-      deviceInfo,
-      streamUrl: streamUri.uri,
+      deviceInfo: deviceInfo || {},
+      streamUrl: streamUri ? streamUri.uri : null,
       capabilities: {
-        hasRtsp: !!streamUri.uri,
-        hasPtz: !!cam.capabilities?.PTZ
-      }
-    });
+        hasRtsp: !!streamUri?.uri,
+        hasPtz: !!(capabilities.PTZ && capabilities.PTZ.XAddr),
+        hasAnalytics: !!(capabilities.analytics && capabilities.analytics.XAddr),
+        hasEvents: !!(capabilities.events && capabilities.events.XAddr),
+        hasImaging: !!(capabilities.imaging && capabilities.imaging.XAddr)
+      },
+      profiles: profiles.map(p => ({
+        name: p.name,
+        token: p.$.token,
+        resolution: p.videoEncoderConfiguration?.resolution ? 
+          `${p.videoEncoderConfiguration.resolution.width}x${p.videoEncoderConfiguration.resolution.height}` : 
+          'Unknown',
+        type: p.videoEncoderConfiguration?.encoding || 'Unknown'
+      }))
+    };
+    
+    // If we have stream profiles but no URI, try to construct one
+    if (!response.streamUrl && profiles.length > 0 && profiles[0].$.token) {
+      // Attempt to construct a generic RTSP URL
+      const authPart = username && password ? `${encodeURIComponent(username)}:${encodeURIComponent(password)}@` : '';
+      response.streamUrl = `rtsp://${authPart}${ipAddress}:554/onvif/profile/${profiles[0].$.token}`;
+      response.streamUrlGenerated = true;
+    }
+    
+    // Log success
+    req.db.run(
+      `INSERT INTO events (id, timestamp, event_type, message, severity) 
+       VALUES (?, ?, ?, ?, ?)`,
+      [require('uuid').v4(), new Date().toISOString(), 'camera_probe_success', 
+       `Successfully connected to ONVIF camera at ${ipAddress}:${onvifPort}`, 'info']
+    );
+    
+    res.json(response);
   } catch (error) {
     console.error('Error connecting to camera:', error);
+    
+    // Log failure
+    req.db.run(
+      `INSERT INTO events (id, timestamp, event_type, message, severity) 
+       VALUES (?, ?, ?, ?, ?)`,
+      [require('uuid').v4(), new Date().toISOString(), 'camera_probe_failed', 
+       `Failed to connect to ONVIF camera at ${ipAddress}:${onvifPort}: ${error.message}`, 'warning']
+    );
+    
     res.status(500).json({ 
       success: false, 
       error: error.message 
@@ -396,4 +497,3 @@ router.post('/onvif/probe', async (req, res) => {
 });
 
 module.exports = router;
-

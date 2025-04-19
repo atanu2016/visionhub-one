@@ -148,3 +148,44 @@ export async function getCameras(): Promise<Camera[]> {
     return [];
   }
 }
+
+export async function validateOnvifCamera(cameraData: {
+  ipAddress: string;
+  onvifPort: number;
+  username: string;
+  password: string;
+}): Promise<{
+  success: boolean;
+  deviceInfo?: any;
+  streamUrl?: string;
+  ptzCapabilities?: boolean;
+  error?: string;
+}> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/cameras/onvif/probe`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(cameraData),
+    });
+    
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error || `Error: ${response.status}`);
+    }
+    
+    return await response.json();
+  } catch (error) {
+    toast({
+      title: "Camera Validation Failed",
+      description: `${error instanceof Error ? error.message : "Unknown error"}`,
+      variant: "destructive",
+    });
+    console.error('Error validating camera:', error);
+    return { 
+      success: false,
+      error: error instanceof Error ? error.message : "Unknown error"
+    };
+  }
+}

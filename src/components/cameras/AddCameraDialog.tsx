@@ -14,8 +14,10 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Camera, Plus, Search, Loader2 } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Camera, Plus, Search, Loader2, Check, X } from "lucide-react";
 import { Camera as CameraType } from "@/types";
+import * as cameraService from "@/services/cameraService";
 
 // Empty camera template
 const emptyCameraTemplate: Omit<CameraType, 'id'> = {
@@ -49,6 +51,23 @@ export function AddCameraDialog({
   const [isDiscovering, setIsDiscovering] = useState(false);
   const [discoveredCameras, setDiscoveredCameras] = useState<any[]>([]);
   const [isAdding, setIsAdding] = useState(false);
+  const [isValidating, setIsValidating] = useState(false);
+  const [validationResult, setValidationResult] = useState<{
+    success?: boolean;
+    deviceInfo?: any;
+    streamUrl?: string;
+    ptzCapabilities?: boolean;
+    error?: string;
+  } | null>(null);
+
+  // Clear form and validation state when dialog opens/closes
+  const handleOpenChange = (open: boolean) => {
+    setOpen(open);
+    if (!open) {
+      setFormData({ ...emptyCameraTemplate });
+      setValidationResult(null);
+    }
+  };
 
   // Handle form submission
   const handleSubmit = async (e: React.FormEvent) => {
@@ -71,13 +90,46 @@ export function AddCameraDialog({
       ...formData,
       [field]: value,
     });
+    
+    // Clear validation when editing connection details
+    if (['ipAddress', 'onvifPort', 'username', 'password'].includes(field)) {
+      setValidationResult(null);
+    }
+  };
+
+  // Handle camera validation
+  const handleValidateCamera = async () => {
+    if (!formData.ipAddress) return;
+    
+    setIsValidating(true);
+    setValidationResult(null);
+    
+    try {
+      const result = await cameraService.validateOnvifCamera({
+        ipAddress: formData.ipAddress,
+        onvifPort: formData.onvifPort,
+        username: formData.username,
+        password: formData.password
+      });
+      
+      setValidationResult(result);
+      
+      // If validation successful and we got a stream URL, update the form
+      if (result.success && result.streamUrl) {
+        setFormData(prev => ({
+          ...prev,
+          streamUrl: result.streamUrl || prev.streamUrl
+        }));
+      }
+    } finally {
+      setIsValidating(false);
+    }
   };
 
   // Handle camera discovery
   const handleDiscover = async () => {
     setIsDiscovering(true);
     try {
-      // Use the real discovery function
       const cameras = await onDiscoverCameras(subnet);
       setDiscoveredCameras(cameras || []);
     } finally {
@@ -101,7 +153,7 @@ export function AddCameraDialog({
   };
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>
         <Button className="gap-2">
           <Plus className="h-4 w-4" />
@@ -175,6 +227,87 @@ export function AddCameraDialog({
                 </div>
 
                 <div className="space-y-2">
+                  <div className="flex justify-between items-center">
+                    <Label htmlFor="validate">Connection Settings</Label>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={handleValidateCamera}
+                      disabled={isValidating || !formData.ipAddress}
+                    >
+                      {isValidating ? (
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      ) : (
+                        <Camera className="h-4 w-4 mr-2" />
+                      )}
+                      Validate Connection
+                    </Button>
+                  </div>
+                  
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="username">Username</Label>
+                      <Input
+                        id="username"
+                        value={formData.username}
+                        onChange={(e) => handleChange("username", e.target.value)}
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="password">Password</Label>
+                      <Input
+                        id="password"
+                        type="password"
+                        value={formData.password}
+                        onChange={(e) => handleChange("password", e.target.value)}
+                      />
+                    </div>
+                  </div>
+                  
+                  {validationResult !== null && (
+                    <div className={`p-3 border rounded-md mt-2 ${validationResult.success ? 'border-green-500 bg-green-50' : 'border-red-500 bg-red-50'}`}>
+                      <div className="flex items-start gap-2">
+                        {validationResult.success ? (
+                          <Check className="h-5 w-5 text-green-500 mt-0.5" />
+                        ) : (
+                          <X className="h-5 w-5 text-red-500 mt-0.5" />
+                        )}
+                        <div>
+                          <p className={`font-medium ${validationResult.success ? 'text-green-700' : 'text-red-700'}`}>
+                            {validationResult.success ? 'Camera connection successful!' : 'Camera connection failed'}
+                          </p>
+                          {validationResult.success ? (
+                            <div className="text-sm text-green-700 mt-1">
+                              {validationResult.deviceInfo && (
+                                <p>
+                                  {validationResult.deviceInfo.manufacturer} {validationResult.deviceInfo.model}
+                                </p>
+                              )}
+                              <div className="flex gap-2 mt-1">
+                                <Badge variant="outline" className="bg-green-100 text-green-800 hover:bg-green-100">
+                                  ONVIF Compatible
+                                </Badge>
+                                {validationResult.ptzCapabilities && (
+                                  <Badge variant="outline" className="bg-blue-100 text-blue-800 hover:bg-blue-100">
+                                    PTZ Support
+                                  </Badge>
+                                )}
+                              </div>
+                            </div>
+                          ) : (
+                            <p className="text-sm text-red-700 mt-1">
+                              {validationResult.error || "Unable to connect to camera. Please check the IP address, port, and credentials."}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <div className="space-y-2">
                   <Label htmlFor="streamUrl">Stream URL</Label>
                   <Input
                     id="streamUrl"
@@ -183,27 +316,9 @@ export function AddCameraDialog({
                     required
                     placeholder="rtsp://username:password@camera-ip:port/stream"
                   />
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="username">Username</Label>
-                    <Input
-                      id="username"
-                      value={formData.username}
-                      onChange={(e) => handleChange("username", e.target.value)}
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="password">Password</Label>
-                    <Input
-                      id="password"
-                      type="password"
-                      value={formData.password}
-                      onChange={(e) => handleChange("password", e.target.value)}
-                    />
-                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    {validationResult?.success ? "Stream URL auto-detected from camera" : "RTSP URL for the camera stream"}
+                  </p>
                 </div>
 
                 <div className="flex items-center space-x-2">
