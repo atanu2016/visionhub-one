@@ -24,6 +24,18 @@ async function deleteRecording(recordingId: string): Promise<boolean> {
   return true;
 }
 
+// Function to export a recording (download)
+async function exportRecordingById(recordingId: string): Promise<string> {
+  const response = await fetch(`/api/recordings/${recordingId}/export`);
+  
+  if (!response.ok) {
+    throw new Error('Failed to export recording');
+  }
+  
+  const { downloadUrl } = await response.json();
+  return downloadUrl;
+}
+
 export function useRecordings() {
   const queryClient = useQueryClient();
   
@@ -51,6 +63,30 @@ export function useRecordings() {
     }
   });
 
+  // Export recording mutation
+  const exportMutation = useMutation({
+    mutationFn: exportRecordingById,
+    onSuccess: (downloadUrl) => {
+      // Create a temporary anchor element to trigger the download
+      const link = document.createElement('a');
+      link.href = downloadUrl;
+      link.target = '_blank';
+      link.click();
+      
+      toast({
+        title: "Export initiated",
+        description: "The recording download has started"
+      });
+    },
+    onError: (error) => {
+      toast({
+        title: "Export failed",
+        description: `Failed to export recording: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        variant: "destructive"
+      });
+    }
+  });
+
   // Filter recordings by camera ID
   const getRecordingsForCamera = (cameraId: string) => {
     return recordings.filter(recording => recording.cameraId === cameraId);
@@ -71,6 +107,7 @@ export function useRecordings() {
     getRecordingsForCamera,
     getRecordingsByDateRange,
     deleteRecording: (id: string) => deleteMutation.mutate(id),
+    exportRecording: (id: string) => exportMutation.mutate(id),
     refetch
   };
 }

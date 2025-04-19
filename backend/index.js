@@ -13,6 +13,7 @@ const databaseMiddleware = require('./middleware/databaseMiddleware');
 // Import routes
 const cameraRoutes = require('./routes/cameraRoutes');
 const settingsRoutes = require('./routes/settingsRoutes');
+const recordingRoutes = require('./routes/recordingRoutes');
 
 // Import utils
 const { initWebSocketServer } = require('./utils/websocketManager');
@@ -30,6 +31,7 @@ const app = express();
 app.use(bodyParser.json());
 app.use(express.static(path.join(__dirname, '../dist')));
 app.use('/backups', express.static(path.join(__dirname, '../backups')));
+app.use('/recordings', express.static(path.join(__dirname, '../recordings')));
 
 // Create HTTP or HTTPS server based on settings
 let server;
@@ -94,6 +96,7 @@ async function initializeServer() {
     // API Routes
     app.use('/api/cameras', cameraRoutes);
     app.use('/api/settings', settingsRoutes);
+    app.use('/api/recordings', recordingRoutes);
     
     // Diagnostics route
     app.get('/api/diagnostics', async (req, res) => {
