@@ -6,6 +6,7 @@ const http = require('http');
 const https = require('https');
 const fs = require('fs');
 const { v4: uuidv4 } = require('uuid');
+const { exec } = require('child_process');
 
 // Import middleware
 const databaseMiddleware = require('./middleware/databaseMiddleware');
@@ -14,6 +15,7 @@ const databaseMiddleware = require('./middleware/databaseMiddleware');
 const cameraRoutes = require('./routes/cameraRoutes');
 const settingsRoutes = require('./routes/settingsRoutes');
 const recordingRoutes = require('./routes/recordingRoutes');
+const eventRoutes = require('./routes/eventRoutes');
 
 // Import utils
 const { initWebSocketServer } = require('./utils/websocketManager');
@@ -97,6 +99,7 @@ async function initializeServer() {
     app.use('/api/cameras', cameraRoutes);
     app.use('/api/settings', settingsRoutes);
     app.use('/api/recordings', recordingRoutes);
+    app.use('/api/events', eventRoutes);
     
     // Diagnostics route
     app.get('/api/diagnostics', async (req, res) => {

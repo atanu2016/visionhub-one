@@ -250,6 +250,139 @@ router.post('/ssl/key', uploadSSL.single('key'), (req, res) => {
   });
 });
 
+// POST /api/settings/ssl/generate - Generate self-signed SSL certificate
+router.post('/ssl/generate', (req, res) => {
+  try {
+    // Define paths for SSL certificates
+    const sslDir = path.join(__dirname, '../../ssl');
+    const keyPath = path.join(sslDir, 'visionhub.key');
+    const certPath = path.join(sslDir, 'visionhub.crt');
+    
+    // Create directory if it doesn't exist
+    if (!fs.existsSync(sslDir)) {
+      fs.mkdirSync(sslDir, { recursive: true });
+    }
+    
+    // Generate self-signed certificate using OpenSSL
+    const command = `openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+      -keyout "${keyPath}" \
+      -out "${certPath}" \
+      -subj "/CN=visionhub.local"`;
+    
+    exec(command, (error, stdout, stderr) => {
+      if (error) {
+        console.error('Error generating SSL certificate:', error);
+        return res.status(500).json({ 
+          success: false, 
+          error: error.message 
+        });
+      }
+      
+      // Update database with certificate paths
+      const relativeCertPath = '/ssl/visionhub.crt';
+      const relativeKeyPath = '/ssl/visionhub.key';
+      
+      req.db.run(
+        `UPDATE settings SET ssl_cert_path = ?, ssl_key_path = ? WHERE id = 1`,
+        [relativeCertPath, relativeKeyPath],
+        function(err) {
+          if (err) {
+            console.error('Error updating certificate paths in database:', err);
+            return res.status(500).json({ 
+              success: false, 
+              error: err.message 
+            });
+          }
+          
+          // Log the certificate generation event
+          const eventId = uuidv4();
+          req.db.run(
+            `INSERT INTO events (id, timestamp, event_type, message, severity) 
+             VALUES (?, ?, ?, ?, ?)`,
+            [
+              eventId,
+              new Date().toISOString(),
+              'system_updated',
+              'Self-signed SSL certificate generated',
+              'info'
+            ]
+          );
+          
+          res.json({
+            success: true,
+            message: 'SSL certificate generated successfully',
+            certPath: relativeCertPath,
+            keyPath: relativeKeyPath
+          });
+        }
+      );
+    });
+  } catch (error) {
+    console.error('Error in SSL certificate generation:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: error.message 
+    });
+  }
+});
+
+// POST /api/settings/email/test - Test email sending
+router.post('/email/test', (req, res) => {
+  const { to, subject = 'Test Alert from VisionHub One', message = 'This is a test alert email from VisionHub One Sentinel system.' } = req.body;
+  
+  if (!to) {
+    return res.status(400).json({ error: 'Email address is required' });
+  }
+  
+  // Get SMTP settings from database
+  req.db.get(
+    `SELECT smtp_server, smtp_port, smtp_username, smtp_password, smtp_sender_email 
+     FROM settings WHERE id = 1`,
+    [],
+    (err, settings) => {
+      if (err) {
+        return res.status(500).json({ error: err.message });
+      }
+      
+      if (!settings || !settings.smtp_server) {
+        return res.status(400).json({ error: 'SMTP settings not configured' });
+      }
+      
+      // Use sendmail for local testing
+      const command = `echo "${message}" | sendmail -f "${settings.smtp_sender_email || 'admin@visionhub.local'}" "${to}"`;
+      
+      exec(command, (error, stdout, stderr) => {
+        if (error) {
+          console.error('Error sending test email:', error);
+          return res.status(500).json({ 
+            success: false, 
+            error: error.message 
+          });
+        }
+        
+        // Log the email test
+        const eventId = uuidv4();
+        req.db.run(
+          `INSERT INTO events (id, timestamp, event_type, message, severity) 
+           VALUES (?, ?, ?, ?, ?)`,
+          [
+            eventId,
+            new Date().toISOString(),
+            'email_sent',
+            `Test email sent to ${to}`,
+            'info'
+          ]
+        );
+        
+        res.json({
+          success: true,
+          message: 'Test email sent successfully'
+        });
+      });
+    }
+  );
+});
+
 // GET /api/settings/update/check - Check for system updates
 router.get('/update/check', async (req, res) => {
   try {
@@ -506,6 +639,81 @@ router.post('/restore', uploadBackup.single('backup'), async (req, res) => {
     console.error('Error restoring from backup:', error);
     res.status(500).json({ error: 'Failed to restore system', details: error.message });
   }
+});
+
+// GET /api/settings/discover - Discover cameras on network
+router.get('/discover', (req, res) => {
+  const { cidr } = req.query;
+  
+  if (!cidr) {
+    return res.status(400).json({ error: 'CIDR range is required' });
+  }
+  
+  // Use nmap to scan the network for cameras
+  const command = `nmap -p 80,554 --open -sV ${cidr}`;
+  
+  exec(command, (error, stdout, stderr) => {
+    if (error) {
+      console.error('Error during network scan:', error);
+      return res.status(500).json({ 
+        success: false, 
+        error: error.message 
+      });
+    }
+    
+    // Parse nmap output to find potential camera devices
+    const lines = stdout.split('\n');
+    const devices = [];
+    let currentDevice = null;
+    
+    for (const line of lines) {
+      // Look for IP addresses
+      const ipMatch = line.match(/^Nmap scan report for\s+(.+)\s*$/);
+      if (ipMatch) {
+        if (currentDevice) {
+          devices.push(currentDevice);
+        }
+        currentDevice = { ip: ipMatch[1], ports: [], services: [] };
+        continue;
+      }
+      
+      // Look for open ports
+      const portMatch = line.match(/^(\d+)\/tcp\s+open\s+(.+)$/);
+      if (portMatch && currentDevice) {
+        const port = portMatch[1];
+        const service = portMatch[2].trim();
+        currentDevice.ports.push(port);
+        currentDevice.services.push(service);
+      }
+    }
+    
+    // Add the last device if exists
+    if (currentDevice) {
+      devices.push(currentDevice);
+    }
+    
+    // Filter for likely cameras (has port 554 for RTSP)
+    const potentialCameras = devices.filter(d => d.ports.includes('554'));
+    
+    // Log the discovery event
+    const eventId = uuidv4();
+    req.db.run(
+      `INSERT INTO events (id, timestamp, event_type, message, severity) 
+       VALUES (?, ?, ?, ?, ?)`,
+      [
+        eventId,
+        new Date().toISOString(),
+        'camera_discovery',
+        `Network scan complete: found ${potentialCameras.length} potential cameras`,
+        'info'
+      ]
+    );
+    
+    res.json({
+      success: true,
+      devices: potentialCameras
+    });
+  });
 });
 
 module.exports = router;

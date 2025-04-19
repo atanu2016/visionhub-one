@@ -1,6 +1,7 @@
+
 import { useState, useEffect } from "react";
 import { SystemSettings, StorageType } from "@/types";
-import { toast } from "@/components/ui/use-toast";
+import { toast } from "@/hooks/use-toast";
 
 // Default settings
 const defaultSettings: SystemSettings = {
@@ -12,7 +13,13 @@ const defaultSettings: SystemSettings = {
   retentionDays: 30,
   storageType: "local",
   nasMounted: false,
-  sslEnabled: false
+  sslEnabled: false,
+  // Default values for new fields
+  motionAlerts: true,
+  cameraDisconnectAlerts: true,
+  storageAlerts: true,
+  systemAlerts: true,
+  webhookEnabled: false
 };
 
 // In a real app, this would interact with a backend API
@@ -55,7 +62,18 @@ export function useSystemSettings() {
           nasMounted: !!data.nas_mounted,
           sslEnabled: !!data.ssl_enabled,
           sslCertPath: data.ssl_cert_path,
-          sslKeyPath: data.ssl_key_path
+          sslKeyPath: data.ssl_key_path,
+          // New fields
+          smtpServer: data.smtp_server,
+          smtpPort: data.smtp_port,
+          smtpUsername: data.smtp_username,
+          smtpPassword: data.smtp_password,
+          smtpSenderEmail: data.smtp_sender_email,
+          motionAlerts: !!data.motion_alerts,
+          cameraDisconnectAlerts: !!data.camera_disconnect_alerts,
+          storageAlerts: !!data.storage_alerts,
+          systemAlerts: !!data.system_alerts,
+          webhookEnabled: !!data.webhook_enabled
         };
         
         setSettings(transformedSettings);
@@ -154,7 +172,18 @@ export function useSystemSettings() {
         nas_password: updatedSettings.nasPassword,
         ssl_enabled: updatedSettings.sslEnabled,
         ssl_cert_path: updatedSettings.sslCertPath,
-        ssl_key_path: updatedSettings.sslKeyPath
+        ssl_key_path: updatedSettings.sslKeyPath,
+        // New fields
+        smtp_server: updatedSettings.smtpServer,
+        smtp_port: updatedSettings.smtpPort,
+        smtp_username: updatedSettings.smtpUsername,
+        smtp_password: updatedSettings.smtpPassword,
+        smtp_sender_email: updatedSettings.smtpSenderEmail,
+        motion_alerts: updatedSettings.motionAlerts,
+        camera_disconnect_alerts: updatedSettings.cameraDisconnectAlerts,
+        storage_alerts: updatedSettings.storageAlerts,
+        system_alerts: updatedSettings.systemAlerts,
+        webhook_enabled: updatedSettings.webhookEnabled
       };
       
       // In a real app, this would call an API

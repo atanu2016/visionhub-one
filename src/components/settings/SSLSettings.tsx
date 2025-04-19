@@ -11,9 +11,10 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Lock, Upload, CheckCircle, AlertCircle } from "lucide-react";
+import { Lock, Upload, CheckCircle, AlertCircle, KeyRound } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { toast } from "@/components/ui/use-toast";
+import { toast } from "@/hooks/use-toast";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
 interface SSLSettingsProps {
   sslEnabled: boolean;
@@ -33,6 +34,7 @@ export function SSLSettings({
   onKeyUpload
 }: SSLSettingsProps) {
   const [uploading, setUploading] = useState<'cert' | 'key' | null>(null);
+  const [generating, setGenerating] = useState(false);
   const certInputRef = useRef<HTMLInputElement>(null);
   const keyInputRef = useRef<HTMLInputElement>(null);
 
@@ -144,6 +146,44 @@ export function SSLSettings({
     }
   };
 
+  // Function to generate self-signed certificate
+  const handleGenerateCertificate = async () => {
+    setGenerating(true);
+    
+    try {
+      const response = await fetch('/api/settings/ssl/generate', {
+        method: 'POST'
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to generate certificate');
+      }
+      
+      const data = await response.json();
+      
+      if (data.success) {
+        onCertificateUpload(data.certPath);
+        onKeyUpload(data.keyPath);
+        
+        toast({
+          title: "Certificate generated",
+          description: "Self-signed SSL certificate generated successfully",
+        });
+      } else {
+        throw new Error(data.error || 'Unknown error');
+      }
+    } catch (error) {
+      console.error('Error generating certificate:', error);
+      toast({
+        title: "Generation failed",
+        description: `Failed to generate SSL certificate: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        variant: "destructive"
+      });
+    } finally {
+      setGenerating(false);
+    }
+  };
+
   return (
     <Card>
       <CardHeader>
@@ -169,6 +209,36 @@ export function SSLSettings({
             onCheckedChange={onToggleSsl}
             disabled={!certPath || !keyPath}
           />
+        </div>
+        
+        <Alert className="bg-sentinel-purple/5 text-sentinel-purple border-sentinel-purple/20">
+          <KeyRound className="h-4 w-4" />
+          <AlertTitle>Generate or Upload SSL Certificate</AlertTitle>
+          <AlertDescription>
+            You can generate a self-signed certificate for testing or upload your own SSL certificate and private key.
+          </AlertDescription>
+        </Alert>
+
+        <div className="flex flex-col md:flex-row md:items-center gap-4">
+          <Button 
+            type="button"
+            variant="secondary"
+            className="w-full"
+            onClick={handleGenerateCertificate}
+            disabled={generating}
+          >
+            {generating ? (
+              <>
+                <Lock className="mr-2 h-4 w-4 animate-spin" />
+                Generating Certificate...
+              </>
+            ) : (
+              <>
+                <KeyRound className="mr-2 h-4 w-4" />
+                Generate Self-Signed Certificate
+              </>
+            )}
+          </Button>
         </div>
         
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4">
