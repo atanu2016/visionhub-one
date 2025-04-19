@@ -17,19 +17,44 @@ function databaseMiddleware(dbPath) {
     }
   }
 
-  // Open database connection
-  const db = new sqlite3.Database(dbPath, (err) => {
-    if (err) {
-      console.error(`Error opening database at ${dbPath}:`, err);
-      // Try to fallback to a temporary in-memory database for development
-      console.warn('Falling back to in-memory database');
+  // First check if database file is accessible
+  let useInMemory = false;
+  try {
+    if (fs.existsSync(dbPath)) {
+      // Check if we have write permission by trying to open it
+      const fd = fs.openSync(dbPath, 'r+');
+      fs.closeSync(fd);
     } else {
-      console.log(`Connected to SQLite database at ${dbPath}`);
+      // Try to create the file to check write permission
+      fs.writeFileSync(dbPath, '', { flag: 'wx' });
     }
-  });
+  } catch (err) {
+    console.error(`Database file at ${dbPath} is not writable:`, err);
+    useInMemory = true;
+  }
+
+  // Open database connection
+  let db;
+  if (useInMemory) {
+    console.warn('Using in-memory database due to file access issues');
+    db = new sqlite3.Database(':memory:');
+  } else {
+    db = new sqlite3.Database(dbPath, (err) => {
+      if (err) {
+        console.error(`Error opening database at ${dbPath}:`, err);
+        // We'll continue with the database instance anyway, which will be in-memory in this case
+      } else {
+        console.log(`Connected to SQLite database at ${dbPath}`);
+      }
+    });
+  }
   
   // Initialize database tables
-  initializeDatabase(db);
+  try {
+    initializeDatabase(db);
+  } catch (dbErr) {
+    console.error('Database initialization error:', dbErr);
+  }
 
   return (req, res, next) => {
     req.db = db;

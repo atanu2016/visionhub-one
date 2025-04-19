@@ -25,7 +25,7 @@ CREATE TABLE IF NOT EXISTS settings (
   ssl_enabled INTEGER DEFAULT 0,
   ssl_cert_path TEXT,
   ssl_key_path TEXT,
-  storage_path TEXT,
+  storage_location TEXT DEFAULT '/var/visionhub/recordings',
   backup_enabled INTEGER DEFAULT 0,
   backup_path TEXT,
   backup_schedule TEXT DEFAULT 'daily',
@@ -35,7 +35,7 @@ CREATE TABLE IF NOT EXISTS settings (
 );
 
 -- Initial settings values if needed
-INSERT OR IGNORE INTO settings (id, ssl_enabled, storage_path)
+INSERT OR IGNORE INTO settings (id, ssl_enabled, storage_location)
 VALUES ('1', 0, '/var/visionhub/recordings');
 
 -- Create events table if it doesn't exist

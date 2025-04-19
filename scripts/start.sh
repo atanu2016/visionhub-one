@@ -74,6 +74,16 @@ fi
 # Create a temporary success file to track successful starts
 touch "$LOG_DIR/startup_in_progress"
 
+# Try to repair the database if it exists but might be corrupted
+if [ -f "$DB_PATH" ]; then
+  echo "Checking database integrity..."
+  if ! sqlite3 "$DB_PATH" "PRAGMA integrity_check;" > /dev/null 2>&1; then
+    echo "Warning: Database may be corrupted. Creating backup and attempting repair..."
+    cp "$DB_PATH" "${DB_PATH}.backup-$(date +%Y%m%d%H%M%S)"
+    sqlite3 "$DB_PATH" "VACUUM;" || echo "Failed to repair database. Will recreate if needed."
+  fi
+fi
+
 # Create a minimal frontend if dist directory doesn't exist
 if [ ! -d "dist" ]; then
   echo "Frontend not built yet. Creating minimal frontend..."
@@ -86,12 +96,17 @@ if [ ! -d "dist" ]; then
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>VisionHub One Sentinel - API Mode</title>
   <style>
-    body { font-family: Arial, sans-serif; margin: 0; padding: 20px; text-align: center; }
+    body { font-family: Arial, sans-serif; margin: 0; padding: 20px; text-align: center; background-color: #f5f8fa; }
     h1 { color: #2c3e50; }
     .container { max-width: 800px; margin: 0 auto; }
-    .message { background: #f8f9fa; border-radius: 5px; padding: 20px; margin-top: 20px; }
-    .api-info { color: #004085; background-color: #cce5ff; padding: 10px; border-radius: 5px; margin-top: 20px; }
-    .warning { color: #856404; background-color: #fff3cd; padding: 10px; border-radius: 5px; margin-top: 10px; }
+    .message { background: #ffffff; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); padding: 30px; margin-top: 20px; }
+    .api-info { color: #004085; background-color: #cce5ff; padding: 15px; border-radius: 5px; margin-top: 20px; }
+    .warning { color: #856404; background-color: #fff3cd; padding: 15px; border-radius: 5px; margin-top: 20px; }
+    .login-form { margin-top: 30px; padding: 20px; border: 1px solid #e1e4e8; border-radius: 5px; }
+    input { padding: 10px; margin: 5px 0; width: 100%; border: 1px solid #ddd; border-radius: 4px; }
+    button { background: #4299e1; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; margin-top: 10px; }
+    button:hover { background: #3182ce; }
+    .error { color: #e53e3e; margin-top: 10px; }
   </style>
 </head>
 <body>
@@ -104,8 +119,22 @@ if [ ! -d "dist" ]; then
       <p>The full web interface could not be built, but all API endpoints are available.</p>
       
       <div class="api-info">
-        <p><strong>API Status:</strong> Online</p>
-        <p><strong>API Base URL:</strong> http://${window.location.hostname}/api</p>
+        <p><strong>API Status:</strong> <span id="api-status">Checking...</span></p>
+        <p><strong>API Base URL:</strong> http://<span id="hostname">localhost</span>/api</p>
+      </div>
+      
+      <div class="login-form">
+        <h2>Admin Login</h2>
+        <form id="login-form">
+          <div>
+            <input type="text" id="username" placeholder="Username" value="admin" />
+          </div>
+          <div>
+            <input type="password" id="password" placeholder="Password" value="Admin123!" />
+          </div>
+          <button type="submit">Login</button>
+          <div id="login-error" class="error"></div>
+        </form>
       </div>
       
       <div class="warning">
@@ -119,18 +148,59 @@ if [ ! -d "dist" ]; then
   </div>
   
   <script>
+    document.getElementById('hostname').textContent = window.location.hostname;
+    
     // Basic API connectivity test
-    fetch('/api/diagnostics')
+    fetch('/api/status')
       .then(response => {
         if (response.ok) {
-          document.querySelector('.api-info').innerHTML += '<p style="color:green">✓ API Connection Successful</p>';
+          document.getElementById('api-status').innerHTML = '<span style="color:green">✓ Online</span>';
+          return response.json();
         } else {
-          document.querySelector('.api-info').innerHTML += '<p style="color:red">✗ API Connection Error</p>';
+          document.getElementById('api-status').innerHTML = '<span style="color:red">✗ Error</span>';
+          throw new Error('API status check failed');
+        }
+      })
+      .then(data => {
+        if (data && data.version) {
+          document.getElementById('api-status').innerHTML += ' (v' + data.version + ')';
         }
       })
       .catch(error => {
-        document.querySelector('.api-info').innerHTML += '<p style="color:red">✗ API Connection Error: ' + error.message + '</p>';
+        console.error('API check error:', error);
       });
+      
+    // Handle login form submission
+    document.getElementById('login-form').addEventListener('submit', function(e) {
+      e.preventDefault();
+      const username = document.getElementById('username').value;
+      const password = document.getElementById('password').value;
+      const loginError = document.getElementById('login-error');
+      
+      loginError.textContent = '';
+      
+      fetch('/api/auth/login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ username, password })
+      })
+      .then(response => {
+        if (response.ok) {
+          return response.json();
+        } else {
+          throw new Error('Login failed: ' + response.statusText);
+        }
+      })
+      .then(data => {
+        loginError.textContent = '';
+        alert('Login successful! Token: ' + data.token.substring(0, 10) + '...');
+      })
+      .catch(error => {
+        loginError.textContent = error.message || 'Failed to login';
+      });
+    });
   </script>
 </body>
 </html>
