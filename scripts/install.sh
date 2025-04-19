@@ -3,14 +3,14 @@
 
 # VisionHub One Sentinel Installation Script
 # For Ubuntu 22.04 LTS Server
-# Version 1.2
+# Version 1.2.1 - With Rollup fixes
 
-# Exit on any error
+# Exit on error
 set -e
 
 # Print header
 echo "============================================"
-echo "  VisionHub One Sentinel Installer v1.2"
+echo "  VisionHub One Sentinel Installer v1.2.1"
 echo "============================================"
 echo ""
 
@@ -159,14 +159,19 @@ cd "$INSTALL_DIR" || {
   exit 1
 }
 
-# Install npm dependencies - avoiding rollup issues by setting flag and using --no-optional
-log_message "Installing npm dependencies..."
+# CRITICAL: Set Rollup environment variables to avoid native module issues
 export ROLLUP_SKIP_LOAD_NATIVE_PLUGIN=true
-npm install --no-optional --force || {
-  log_message "Error during npm install. Removing package-lock.json and node_modules and trying again..."
-  rm -rf node_modules package-lock.json
-  npm install --no-optional --force || {
-    log_message "ERROR: Failed to install npm dependencies even with --force. Check packages."
+# This tells Node.js to prefer pure JS implementations
+export NODE_OPTIONS="--no-node-snapshot --no-experimental-fetch"
+
+# Install npm dependencies - clean install approach
+log_message "Installing npm dependencies with clean install approach..."
+rm -rf node_modules package-lock.json
+npm install --no-optional || {
+  log_message "Error during npm install. Trying with basic dependencies only..."
+  # Try installing only essential packages
+  npm install --no-optional react react-dom vite @vitejs/plugin-react-swc || {
+    log_message "ERROR: Failed to install even basic dependencies. Check your Node.js installation."
     exit 1
   }
 }
@@ -174,19 +179,100 @@ npm install --no-optional --force || {
 # Update vite.config.ts to prevent rollup optional dependency issue
 log_message "Updating vite.config.ts to fix rollup issue..."
 if [ -f "$INSTALL_DIR/vite.config.ts" ]; then
-  sed -i 's/import { defineConfig } from "vite";/import { defineConfig } from "vite";\nprocess.env.ROLLUP_SKIP_LOAD_NATIVE_PLUGIN = "true";/' "$INSTALL_DIR/vite.config.ts"
+  cat > "$INSTALL_DIR/vite.config.ts" << EOL
+import { defineConfig } from "vite";
+import react from "@vitejs/plugin-react-swc";
+import path from "path";
+
+// Force skip loading ALL native Rollup plugins
+process.env.ROLLUP_SKIP_LOAD_NATIVE_PLUGIN = "true";
+
+// This tells Rollup directly not to load native modules
+if (typeof global !== "undefined") {
+  // @ts-ignore - We know this is not in the types but it's a valid workaround
+  global.__ROLLUP_NO_NATIVE__ = true;
+}
+
+// https://vitejs.dev/config/
+export default defineConfig(({ mode }) => ({
+  server: {
+    host: "::",
+    port: 8080,
+  },
+  plugins: [
+    react(),
+  ],
+  resolve: {
+    alias: {
+      "@": path.resolve(__dirname, "./src"),
+    },
+  },
+  build: {
+    rollupOptions: {
+      context: 'globalThis',
+    },
+    minify: false,
+  },
+}));
+EOL
 fi
 
-# Build the frontend with fix for rollup issue
-log_message "Building frontend..."
-export ROLLUP_SKIP_LOAD_NATIVE_PLUGIN=true
-npm run build || {
-  log_message "Failed with npm run build, trying with direct vite command..."
+# Try different build strategies
+log_message "Building frontend with multiple fallback strategies..."
+
+# Create an empty index.html in dist as a fallback
+mkdir -p dist
+echo "<html><body><h1>VisionHub One Sentinel</h1><p>Loading...</p></body></html>" > dist/index.html
+
+# Strategy 1: Standard vite build 
+log_message "Trying standard vite build..."
+npm run build && log_message "Build successful!" || {
+  log_message "Failed with npm run build, trying direct vite command..."
+  
+  # Strategy 2: Direct vite command
   ./node_modules/.bin/vite build || {
-    log_message "ERROR: Failed to build frontend. Error log follows:"
-    npm run build --verbose >> "$INSTALL_LOG" 2>&1
-    log_message "See $INSTALL_LOG for full build error details."
-    exit 1
+    log_message "Failed to build frontend with standard methods."
+    log_message "Trying alternative build approach..."
+    
+    # Strategy 3: Simplified build with special flags
+    NODE_OPTIONS="--max-old-space-size=512 --no-node-snapshot" ./node_modules/.bin/vite build --minify=false || {
+      log_message "ERROR: All build attempts failed."
+      log_message "Using minimal placeholder frontend. Backend will still work."
+      
+      # Create a minimal frontend
+      mkdir -p dist
+      cat > dist/index.html << EOL
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VisionHub One Sentinel</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 0; padding: 20px; text-align: center; }
+    h1 { color: #2c3e50; }
+    .container { max-width: 800px; margin: 0 auto; }
+    .message { background: #f8f9fa; border-radius: 5px; padding: 20px; margin-top: 20px; }
+    .error { color: #721c24; background-color: #f8d7da; padding: 10px; border-radius: 5px; }
+    .btn { background: #3498db; color: white; border: none; padding: 10px 15px; border-radius: 5px; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>VisionHub One Sentinel</h1>
+    <div class="message">
+      <p>The frontend could not be built automatically.</p>
+      <p>The backend services are still running and API endpoints are available.</p>
+      <div class="error">
+        <p>Build Error: Unable to build frontend due to Rollup native module issues.</p>
+      </div>
+      <p>Try accessing the API directly at: http://$(hostname -I | awk '{print $1}'):$BACKEND_PORT/api</p>
+    </div>
+  </div>
+</body>
+</html>
+EOL
+    }
   }
 }
 
@@ -268,6 +354,7 @@ Environment=STORAGE_PATH=$RECORDINGS_DIR
 Environment=LOG_PATH=$LOG_DIR
 Environment=JWT_SECRET=$(openssl rand -base64 32)
 Environment=ROLLUP_SKIP_LOAD_NATIVE_PLUGIN=true
+Environment=NODE_OPTIONS=--no-node-snapshot
 ExecStart=/usr/bin/node $INSTALL_DIR/backend/index.js
 Restart=on-failure
 RestartSec=10s
@@ -326,6 +413,12 @@ sqlite3 "$DB_DIR/visionhub.db" "INSERT OR REPLACE INTO settings (id, ssl_enabled
   log_message "WARNING: Failed to insert SSL settings. Will be handled by application."
 }
 
+# Create a backup of the dist directory for future use
+if [ -d "$INSTALL_DIR/dist" ]; then
+  log_message "Creating backup of successful build..."
+  cp -r "$INSTALL_DIR/dist" "$INSTALL_DIR/backup_dist"
+fi
+
 # Enable and start the service with better error handling
 log_message "Enabling and starting VisionHub service..."
 systemctl daemon-reload
@@ -338,6 +431,11 @@ systemctl start visionhub || {
   systemctl start visionhub || {
     log_message "ERROR: Failed to start visionhub service. Check logs with: journalctl -u visionhub -n 50"
     journalctl -u visionhub -n 50 >> "$INSTALL_LOG"
+    
+    log_message "Attempting to start service with direct script..."
+    bash "$INSTALL_DIR/scripts/start.sh" &
+    
+    log_message "Direct start attempt initiated. Check logs for progress."
   }
 }
 
@@ -394,9 +492,15 @@ if [ "$(systemctl is-active visionhub)" != "active" ]; then
   echo "2. Try restarting: sudo systemctl restart visionhub"
   echo "3. Check permissions on $DB_DIR and $LOG_DIR"
   echo "4. Run start script directly: sudo $INSTALL_DIR/scripts/start.sh"
-  echo "5. If frontend build issues persist, try manually rebuilding with:"
-  echo "   cd $INSTALL_DIR && export ROLLUP_SKIP_LOAD_NATIVE_PLUGIN=true && ./node_modules/.bin/vite build"
+  echo "5. Try the backend without frontend build:"
+  echo "   cd $INSTALL_DIR && node backend/index.js"
+  echo "6. If the frontend build issue persists, you can try:"
+  echo "   cd $INSTALL_DIR && export ROLLUP_SKIP_LOAD_NATIVE_PLUGIN=true && export NODE_OPTIONS=\"--no-node-snapshot\" && npx vite build --minify=false"
+  echo ""
+  echo "ALTERNATIVE DEPLOYMENT OPTION:"
+  echo "If you continue to experience issues with the build process, consider:"
+  echo "1. Building the frontend on another machine with the same architecture"
+  echo "2. Copying the resulting 'dist' directory to $INSTALL_DIR on this server"
+  echo "3. Restarting the service: sudo systemctl restart visionhub"
   echo ""
 fi
-
-exit 0

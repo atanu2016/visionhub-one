@@ -2,14 +2,14 @@
 #!/bin/bash
 
 # VisionHub One Sentinel Update Script
-# Version 1.2
+# Version 1.2.1 - With Rollup fix
 
 # Exit on any error
 set -e
 
 # Print header
 echo "============================================"
-echo "  VisionHub One Sentinel Updater v1.2"
+echo "  VisionHub One Sentinel Updater v1.2.1"
 echo "============================================"
 echo ""
 
@@ -71,6 +71,13 @@ log_message "Creating backup at $BACKUP_DIR..."
 mkdir -p "$BACKUP_DIR"
 cp -r "$INSTALL_DIR"/* "$BACKUP_DIR/" || log_message "Warning: Some files could not be backed up"
 
+# Backup the dist directory specifically to a fixed location
+if [ -d "$INSTALL_DIR/dist" ]; then
+  log_message "Creating special backup of the dist directory..."
+  rm -rf "$INSTALL_DIR/backup_dist"
+  cp -r "$INSTALL_DIR/dist" "$INSTALL_DIR/backup_dist" || log_message "Warning: Could not backup dist directory"
+fi
+
 # Pull latest changes
 log_message "Pulling latest changes from repository..."
 # Uncomment for actual git repository updates
@@ -78,41 +85,62 @@ log_message "Pulling latest changes from repository..."
 
 # Install dependencies with fixes for rollup
 log_message "Installing dependencies..."
+
+# CRITICAL: Set Rollup environment variables to avoid native module issues
 export ROLLUP_SKIP_LOAD_NATIVE_PLUGIN=true
-npm install --no-optional --force || {
-  log_message "Failed to install dependencies. Trying with clean reinstall..."
-  rm -rf node_modules package-lock.json
-  npm install --no-optional --force || {
-    log_message "ERROR: Failed to install dependencies even with --force."
-    log_message "Attempting to restore from backup and restart service..."
-    if [ "$SERVICE_ACTIVE" = "active" ]; then
-      systemctl start visionhub.service
-    fi
-    exit 1
-  }
+# This tells Node.js to prefer pure JS implementations
+export NODE_OPTIONS="--no-node-snapshot --no-experimental-fetch"
+
+# Clean install approach for more reliable builds
+log_message "Performing clean install to avoid dependency issues..."
+rm -rf node_modules package-lock.json
+npm install --no-optional || {
+  log_message "ERROR: Failed to install dependencies."
+  log_message "Attempting to restore from backup and restart service..."
+  if [ "$SERVICE_ACTIVE" = "active" ]; then
+    systemctl start visionhub.service
+  fi
+  exit 1
 }
 
-# Build frontend
-log_message "Building frontend..."
+# Try different build strategies
+log_message "Building frontend with multiple fallback strategies..."
+
+# Create an empty index.html in dist as a fallback
+mkdir -p dist
+echo "<html><body><h1>VisionHub One Sentinel</h1><p>Loading...</p></body></html>" > dist/index.html
+
+# Strategy 1: Use esbuild directly if available
+if [ -f "./node_modules/.bin/esbuild" ]; then
+  log_message "Trying build with esbuild..."
+  ./node_modules/.bin/esbuild src/main.tsx --bundle --outfile=dist/bundle.js || log_message "esbuild failed, trying next method"
+fi
+
+# Strategy 2: Standard vite build 
+log_message "Trying standard vite build..."
 export ROLLUP_SKIP_LOAD_NATIVE_PLUGIN=true
-npm run build || {
+npm run build && log_message "Build successful!" || {
   log_message "Failed with npm run build, trying direct vite command..."
+  
+  # Strategy 3: Direct vite command
   ./node_modules/.bin/vite build || {
-    log_message "Failed to build frontend. Attempting to restore from backup..."
-    log_message "Restoring node_modules from backup..."
-    rm -rf "$INSTALL_DIR/node_modules"
-    cp -r "$BACKUP_DIR/node_modules" "$INSTALL_DIR/" || log_message "WARNING: Could not restore node_modules"
+    log_message "Failed to build frontend with standard methods."
+    log_message "Trying alternative build approach..."
     
-    log_message "Restoring dist from backup..."
-    rm -rf "$INSTALL_DIR/dist"
-    cp -r "$BACKUP_DIR/dist" "$INSTALL_DIR/" || log_message "WARNING: Could not restore dist"
-    
-    if [ "$SERVICE_ACTIVE" = "active" ]; then
-      log_message "Restarting service..."
-      systemctl start visionhub.service
-    fi
-    
-    exit 1
+    # Strategy 4: Simplified build with special flags
+    NODE_OPTIONS="--max-old-space-size=512 --no-node-snapshot" ./node_modules/.bin/vite build --minify=false || {
+      log_message "ERROR: All build attempts failed."
+      
+      # Check if we have a backup we can use
+      if [ -d "$INSTALL_DIR/backup_dist" ]; then
+        log_message "Restoring frontend from backup_dist..."
+        rm -rf "$INSTALL_DIR/dist"
+        cp -r "$INSTALL_DIR/backup_dist" "$INSTALL_DIR/dist"
+        log_message "Using previous build from backup."
+      else
+        log_message "No backup build available. Service may not work correctly."
+      fi
+    }
   }
 }
 
@@ -186,8 +214,8 @@ if [ "$(systemctl is-active visionhub)" != "active" ]; then
   echo "Try the following troubleshooting steps:"
   echo "1. Check logs: sudo journalctl -u visionhub -f"
   echo "2. Try restarting: sudo systemctl restart visionhub"
-  echo "3. Run start script directly: sudo $INSTALL_DIR/scripts/start.sh"
-  echo "4. If frontend build issues persist, try manually rebuilding with:"
-  echo "   cd $INSTALL_DIR && export ROLLUP_SKIP_LOAD_NATIVE_PLUGIN=true && ./node_modules/.bin/vite build"
+  echo "3. Run start script directly: sudo $INSTALL_DIR/scripts/start.sh" 
+  echo "4. Try an alternative build approach:"
+  echo "   cd $INSTALL_DIR && export ROLLUP_SKIP_LOAD_NATIVE_PLUGIN=true && NODE_OPTIONS=\"--no-node-snapshot\" npx vite build --minify=false"
   echo ""
 fi

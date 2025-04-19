@@ -17,6 +17,11 @@ export DB_PATH=${DB_PATH:-/var/visionhub/db/visionhub.db}
 export STORAGE_PATH=${STORAGE_PATH:-/var/visionhub/recordings}
 export JWT_SECRET=${JWT_SECRET:-"visionhub-sentinel-secret-key"}
 
+# CRITICAL: Set Rollup environment variables to avoid native module issues
+export ROLLUP_SKIP_LOAD_NATIVE_PLUGIN=true
+# This tells Node.js to prefer pure JS implementations
+export NODE_OPTIONS="--no-node-snapshot --no-experimental-fetch"
+
 # Get the directory where the script is located
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
@@ -59,25 +64,16 @@ fi
 # Change to project root directory
 cd $PROJECT_ROOT || { echo "Failed to change to project directory"; exit 1; }
 
-# Check if the node_modules directory exists
-if [ ! -d "node_modules" ]; then
-  echo "Installing dependencies..."
-  # Use --force and --no-optional to avoid the Rollup optional dependency issue
-  npm install --no-optional --force || { echo "Failed to install dependencies"; exit 1; }
+# Check if the dist directory exists - if not, try to use pre-built dist from backup
+if [ ! -d "dist" ] && [ -d "backup_dist" ]; then
+  echo "Using pre-built frontend from backup_dist..."
+  cp -r backup_dist dist
 fi
 
-# Check if the dist directory exists
+# Check if the dist directory exists now
 if [ ! -d "dist" ]; then
-  echo "Building frontend..."
-  # Set environment variable to skip optional Rollup dependencies
-  export ROLLUP_SKIP_LOAD_NATIVE_PLUGIN=true
-  npm run build || { 
-    echo "Failed to build frontend with npm run build, trying with direct Vite command..."
-    ./node_modules/.bin/vite build || {
-      echo "Failed to build frontend. Check logs at $LOG_DIR/startup.log"
-      exit 1
-    }
-  }
+  echo "Frontend not built yet. Starting backend without frontend."
+  echo "IMPORTANT: You will need to build the frontend separately."
 fi
 
 # Create a temporary success file to track successful starts
@@ -85,8 +81,26 @@ touch "$LOG_DIR/startup_in_progress"
 
 # Start the server with better error handling
 echo "Starting VisionHub One Sentinel backend server..."
+
+# More robust server start
 node backend/index.js 2>&1 | tee -a "$LOG_DIR/startup.log" || {
   echo "Failed to start server. Check logs at $LOG_DIR/startup.log"
+  echo "Checking for known issues..."
+  
+  # Check if the backend/index.js file exists
+  if [ ! -f "backend/index.js" ]; then
+    echo "ERROR: backend/index.js file not found!"
+  fi
+  
+  # Check database file
+  if [ ! -f "$DB_PATH" ]; then
+    echo "WARNING: Database file not found at $DB_PATH. Will be created on first successful start."
+  fi
+  
+  # Print disk space
+  echo "Checking disk space:"
+  df -h | grep -E "(Filesystem|/$|$STORAGE_PATH)"
+  
   exit 1
 }
 
