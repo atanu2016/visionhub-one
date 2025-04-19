@@ -2,14 +2,14 @@
 #!/bin/bash
 
 # VisionHub One Sentinel Update Script
-# Version 1.3.0 - With improved Rollup workarounds
+# Version 1.4.0 - Added ESBuild support as a fallback
 
 # Exit on any error
 set -e
 
 # Print header
 echo "============================================"
-echo "  VisionHub One Sentinel Updater v1.3.0"
+echo "  VisionHub One Sentinel Updater v1.4.0"
 echo "============================================"
 echo ""
 
@@ -111,19 +111,32 @@ log_message "Building frontend with multiple fallback strategies..."
 mkdir -p dist
 echo "<html><body><h1>VisionHub One Sentinel</h1><p>Loading...</p></body></html>" > dist/index.html
 
-# Strategy 1: Use esbuild directly if available
-if command -v esbuild >/dev/null 2>&1 || [ -f "./node_modules/.bin/esbuild" ]; then
-  log_message "Trying build with esbuild..."
-  (./node_modules/.bin/esbuild src/main.tsx --bundle --format=esm --outfile=dist/bundle.js || command -v esbuild >/dev/null 2>&1 && esbuild src/main.tsx --bundle --format=esm --outfile=dist/bundle.js) && {
-    echo "<!DOCTYPE html><html><head><meta charset=\"UTF-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\"><title>VisionHub One Sentinel</title><script type=\"module\" src=\"/bundle.js\"></script></head><body><div id=\"root\"></div></body></html>" > dist/index.html
-    log_message "esbuild succeeded!"
+BUILD_SUCCESS=false
+
+# Strategy 1: Use esbuild approach if available
+if [ -f "./esbuild.config.js" ]; then
+  log_message "Trying build with ESBuild..."
+  node esbuild.config.js && {
+    log_message "ESBuild succeeded!"
     BUILD_SUCCESS=true
-  } || log_message "esbuild failed, trying next method"
+  } || log_message "ESBuild failed, trying next method"
+fi
+
+# Strategy 2: Use esbuild directly if available and Strategy 1 failed
+if [ "$BUILD_SUCCESS" != "true" ] && (command -v esbuild >/dev/null 2>&1 || [ -f "./node_modules/.bin/esbuild" ]); then
+  log_message "Trying build with direct esbuild command..."
+  mkdir -p dist/assets
+  
+  (./node_modules/.bin/esbuild src/main.tsx --bundle --format=esm --outfile=dist/assets/index.js || command -v esbuild >/dev/null 2>&1 && esbuild src/main.tsx --bundle --format=esm --outfile=dist/assets/index.js) && {
+    echo "<!DOCTYPE html><html><head><meta charset=\"UTF-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\"><title>VisionHub One Sentinel</title><script type=\"module\" src=\"/assets/index.js\"></script></head><body><div id=\"root\"></div></body></html>" > dist/index.html
+    log_message "Direct esbuild succeeded!"
+    BUILD_SUCCESS=true
+  } || log_message "Direct esbuild failed, trying next method"
 fi
 
 # Check if build already succeeded
 if [ "$BUILD_SUCCESS" != "true" ]; then
-  # Strategy 2: Pure JS Vite build with strict Rollup avoidance
+  # Strategy 3: Pure JS Vite build with strict Rollup avoidance
   log_message "Trying pure JS Vite build..."
   
   # Create temporary vite.no-rollup.config.js
@@ -162,9 +175,9 @@ EOL
   npx vite build --config vite.no-rollup.config.js && log_message "Pure JS build successful!" && BUILD_SUCCESS=true || {
     log_message "Pure JS build failed, trying standard build..."
     
-    # Strategy 3: Standard Vite build
+    # Strategy 4: Standard Vite build
     npm run build && log_message "Standard build successful!" && BUILD_SUCCESS=true || {
-      # Strategy 4: Final fallback - copy the minimal placeholder
+      # Strategy 5: Final fallback - copy the minimal placeholder
       log_message "All build attempts failed, using minimal placeholder."
       
       # Check if we have a backup we can use
@@ -297,6 +310,6 @@ if [ "$(systemctl is-active visionhub.service)" != "active" ]; then
   echo "2. Try restarting: sudo systemctl restart visionhub"
   echo "3. Run start script directly: sudo $INSTALL_DIR/scripts/start.sh" 
   echo "4. Try an alternative build approach:"
-  echo "   cd $INSTALL_DIR && export ROLLUP_SKIP_LOAD_NATIVE_PLUGIN=true && NODE_OPTIONS=\"--no-node-snapshot\" npx vite build --minify=false"
+  echo "   cd $INSTALL_DIR && node esbuild.config.js"
   echo ""
 fi

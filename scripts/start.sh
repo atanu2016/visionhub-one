@@ -2,7 +2,7 @@
 #!/bin/bash
 
 # VisionHub One Sentinel Startup Script
-# Version 1.2.0 - With improved Rollup workarounds
+# Version 1.3.0 - With ESBuild support
 
 # Exit on error
 set -e
@@ -69,7 +69,7 @@ cd $PROJECT_ROOT || { echo "Failed to change to project directory"; exit 1; }
 # Check if node_modules exists - if not, try a minimal install
 if [ ! -d "node_modules" ]; then
   echo "node_modules not found. Installing minimal dependencies..."
-  npm install --no-optional express sqlite3 uuid bcrypt cookie-parser jsonwebtoken
+  npm install --no-optional express sqlite3 uuid bcrypt cookie-parser jsonwebtoken esbuild
   # Add any other critical backend dependencies here
 fi
 
@@ -88,9 +88,15 @@ fi
 
 # Create a minimal frontend if dist directory doesn't exist
 if [ ! -d "dist" ]; then
-  echo "Frontend not built yet. Creating minimal frontend..."
-  mkdir -p "dist"
-  cat > "dist/index.html" << EOL
+  echo "Frontend not built yet. Trying to build with ESBuild..."
+  
+  # Try to build with ESBuild first
+  if [ -f "esbuild.config.js" ]; then
+    echo "Found ESBuild config, building..."
+    node esbuild.config.js && echo "ESBuild completed successfully!" || {
+      echo "ESBuild failed, creating minimal frontend..."
+      mkdir -p "dist"
+      cat > "dist/index.html" << EOL
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -217,6 +223,139 @@ if [ ! -d "dist" ]; then
 </body>
 </html>
 EOL
+    }
+  else
+    # No ESBuild config found, create minimal frontend directly
+    echo "No ESBuild config found, creating minimal frontend..."
+    mkdir -p "dist"
+    cat > "dist/index.html" << EOL
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VisionHub One Sentinel - API Mode</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 0; padding: 20px; text-align: center; background-color: #f5f8fa; }
+    h1 { color: #2c3e50; }
+    .container { max-width: 800px; margin: 0 auto; }
+    .message { background: #ffffff; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); padding: 30px; margin-top: 20px; }
+    .api-info { color: #004085; background-color: #cce5ff; padding: 15px; border-radius: 5px; margin-top: 20px; }
+    .warning { color: #856404; background-color: #fff3cd; padding: 15px; border-radius: 5px; margin-top: 20px; }
+    .login-form { margin-top: 30px; padding: 20px; border: 1px solid #e1e4e8; border-radius: 5px; }
+    input { padding: 10px; margin: 5px 0; width: 100%; border: 1px solid #ddd; border-radius: 4px; }
+    button { background: #4299e1; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; margin-top: 10px; }
+    button:hover { background: #3182ce; }
+    .error { color: #e53e3e; margin-top: 10px; }
+    .logo { font-size: 24px; font-weight: bold; margin-bottom: 20px; color: #4a5568; }
+    .logo span { color: #4299e1; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="logo">Vision<span>Hub</span> One Sentinel</div>
+    
+    <div class="message">
+      <h1>Welcome to VisionHub One Sentinel</h1>
+      <p>Backend API Server Mode</p>
+      
+      <div class="api-info">
+        <p><strong>API Status:</strong> <span id="api-status">Checking...</span></p>
+        <p><strong>API Base URL:</strong> http://<span id="hostname">localhost</span>/api</p>
+      </div>
+      
+      <div class="login-form">
+        <h2>Admin Login</h2>
+        <form id="login-form">
+          <div>
+            <input type="text" id="username" placeholder="Username" value="admin" />
+          </div>
+          <div>
+            <input type="password" id="password" placeholder="Password" value="Admin123!" />
+          </div>
+          <button type="submit">Login</button>
+          <div id="login-message" class="error"></div>
+        </form>
+        <div id="login-success" style="display:none; color:green; margin-top:10px;"></div>
+      </div>
+      
+      <div class="warning">
+        <p>This is a minimal frontend for API access only.</p>
+        <p>The full web interface could not be built, but all API endpoints are available.</p>
+      </div>
+    </div>
+  </div>
+  
+  <script>
+    document.getElementById('hostname').textContent = window.location.hostname;
+    
+    // Basic API connectivity test
+    fetch('/api/status')
+      .then(response => {
+        if (response.ok) {
+          document.getElementById('api-status').innerHTML = '<span style="color:green">✓ Online</span>';
+          return response.json();
+        } else {
+          document.getElementById('api-status').innerHTML = '<span style="color:red">✗ Error</span>';
+          throw new Error('API status check failed');
+        }
+      })
+      .then(data => {
+        if (data && data.version) {
+          document.getElementById('api-status').innerHTML += ' (v' + data.version + ')';
+        }
+      })
+      .catch(error => {
+        console.error('API check error:', error);
+      });
+      
+    // Handle login form submission
+    document.getElementById('login-form').addEventListener('submit', function(e) {
+      e.preventDefault();
+      const username = document.getElementById('username').value;
+      const password = document.getElementById('password').value;
+      const loginMessage = document.getElementById('login-message');
+      const loginSuccess = document.getElementById('login-success');
+      const loginForm = document.getElementById('login-form');
+      
+      loginMessage.textContent = '';
+      loginSuccess.style.display = 'none';
+      
+      fetch('/api/auth/login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ username, password })
+      })
+      .then(response => {
+        if (response.ok) {
+          return response.json();
+        } else {
+          throw new Error('Login failed: ' + response.statusText);
+        }
+      })
+      .then(data => {
+        loginMessage.textContent = '';
+        loginSuccess.textContent = 'Login successful! You are now authenticated.';
+        loginSuccess.style.display = 'block';
+        loginForm.reset();
+        
+        // Store token in localStorage
+        localStorage.setItem('visionhub_token', data.token);
+        
+        // Show token information
+        loginSuccess.innerHTML += '<br><small>Token received and stored for API access.</small>';
+      })
+      .catch(error => {
+        loginMessage.textContent = error.message || 'Failed to login';
+      });
+    });
+  </script>
+</body>
+</html>
+EOL
+  fi
 fi
 
 # Start the server with better error handling and more detailed output
@@ -297,7 +436,7 @@ If the service fails to start, try these advanced troubleshooting steps:
 
 7. Reinstall critical dependencies:
    cd /opt/visionhub-sentinel
-   npm install --no-optional express sqlite3 uuid bcrypt cookie-parser
+   npm install --no-optional express sqlite3 uuid bcrypt cookie-parser esbuild
 
 For additional help, check the full logs in /var/log/visionhub/
 EOL
