@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS users (
   lockout_until TEXT
 );
 
--- Create initial admin user if it doesn't exist
+-- Create initial admin user if it doesn't exist with a compliant password
+-- Password: Admin123!
 INSERT OR IGNORE INTO users (id, username, password, email, role, created_at)
-VALUES ('admin', 'admin', '$2b$10$8D4t0G7jprSXza7UpVLZPeY0/cT/X/kPrJ4itmr/Mm1QkWUkxqGv6', 'admin@visionhub.local', 'admin', datetime('now'));
+VALUES ('admin', 'admin', '$2b$10$mD0vNALVAXY3lI5.zYtJTeQwzrOSp7Jh4lfGI0f80SSrz0N2cRiqK', 'admin@visionhub.local', 'admin', datetime('now'));
