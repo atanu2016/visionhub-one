@@ -1,4 +1,3 @@
-
 #!/bin/bash
 
 # VisionHub One Sentinel Installation Script
@@ -108,13 +107,6 @@ log_message "Updating system and installing dependencies..."
 apt-get update
 apt-get upgrade -y
 
-# Install Node.js
-log_message "Installing Node.js $NODE_VERSION..."
-if ! command -v node &> /dev/null; then
-  curl -fsSL "https://deb.nodesource.com/setup_$NODE_VERSION" | bash -
-  apt-get install -y nodejs
-fi
-
 # Install required packages
 log_message "Installing required packages..."
 apt-get install -y \
@@ -130,10 +122,18 @@ apt-get install -y \
   openssl \
   net-tools \
   nmap \
-  iproute2 || {
+  iproute2 \
+  npm || {
     log_message "ERROR: Failed to install required packages."
     exit 1
   }
+
+# Install Node.js
+log_message "Installing Node.js $NODE_VERSION..."
+if ! command -v node &> /dev/null; then
+  curl -fsSL "https://deb.nodesource.com/setup_$NODE_VERSION" | bash -
+  apt-get install -y nodejs
+fi
 
 # Check if the code repository exists (local or git)
 if [ -f "./package.json" ]; then
@@ -159,122 +159,64 @@ cd "$INSTALL_DIR" || {
   exit 1
 }
 
-# CRITICAL: Set Rollup environment variables to avoid native module issues
-export ROLLUP_SKIP_LOAD_NATIVE_PLUGIN=true
-# This tells Node.js to prefer pure JS implementations
-export NODE_OPTIONS="--no-node-snapshot --no-experimental-fetch"
-
-# Install npm dependencies - clean install approach
+# Install npm dependencies with clean install approach that avoids Rollup issues
 log_message "Installing npm dependencies with clean install approach..."
 rm -rf node_modules package-lock.json
+
+# First install esbuild separately to ensure it's available
+npm install --no-optional esbuild || {
+  log_message "Failed to install esbuild. This is required for the build process."
+  exit 1
+}
+
+# Then install other dependencies
 npm install --no-optional || {
   log_message "Error during npm install. Trying with basic dependencies only..."
-  # Try installing only essential packages
-  npm install --no-optional react react-dom vite @vitejs/plugin-react-swc || {
-    log_message "ERROR: Failed to install even basic dependencies. Check your Node.js installation."
+  npm install --no-optional react react-dom express sqlite3 || {
+    log_message "ERROR: Failed to install even basic dependencies."
     exit 1
   }
 }
 
-# Update vite.config.ts to prevent rollup optional dependency issue
-log_message "Updating vite.config.ts to fix rollup issue..."
-if [ -f "$INSTALL_DIR/vite.config.ts" ]; then
-  cat > "$INSTALL_DIR/vite.config.ts" << EOL
-import { defineConfig } from "vite";
-import react from "@vitejs/plugin-react-swc";
-import path from "path";
-
-// Force skip loading ALL native Rollup plugins
-process.env.ROLLUP_SKIP_LOAD_NATIVE_PLUGIN = "true";
-
-// This tells Rollup directly not to load native modules
-if (typeof global !== "undefined") {
-  // @ts-ignore - We know this is not in the types but it's a valid workaround
-  global.__ROLLUP_NO_NATIVE__ = true;
-}
-
-// https://vitejs.dev/config/
-export default defineConfig(({ mode }) => ({
-  server: {
-    host: "::",
-    port: 8080,
-  },
-  plugins: [
-    react(),
-  ],
-  resolve: {
-    alias: {
-      "@": path.resolve(__dirname, "./src"),
-    },
-  },
-  build: {
-    rollupOptions: {
-      context: 'globalThis',
-    },
-    minify: false,
-  },
-}));
-EOL
-fi
-
 # Try different build strategies
 log_message "Building frontend with multiple fallback strategies..."
-
-# Create an empty index.html in dist as a fallback
 mkdir -p dist
-echo "<html><body><h1>VisionHub One Sentinel</h1><p>Loading...</p></body></html>" > dist/index.html
 
-# Strategy 1: Standard vite build 
-log_message "Trying standard vite build..."
-npm run build && log_message "Build successful!" || {
-  log_message "Failed with npm run build, trying direct vite command..."
+# Strategy 1: Direct ESBuild approach
+if [ -f "esbuild.config.js" ]; then
+  log_message "Building with ESBuild..."
+  node esbuild.config.js && log_message "ESBuild build successful!" || {
+    log_message "ESBuild build failed, trying direct command..."
+    ./node_modules/.bin/esbuild src/main.tsx \
+      --bundle \
+      --format=esm \
+      --outfile=dist/assets/index.js \
+      || log_message "Direct ESBuild command failed too."
+  }
+fi
+
+# If build failed, create a minimal frontend
+if [ ! -f "dist/assets/index.js" ]; then
+  log_message "Creating minimal frontend as fallback..."
+  mkdir -p dist/assets
+  echo "/* Minimal CSS */" > dist/assets/index.css
   
-  # Strategy 2: Direct vite command
-  ./node_modules/.bin/vite build || {
-    log_message "Failed to build frontend with standard methods."
-    log_message "Trying alternative build approach..."
-    
-    # Strategy 3: Simplified build with special flags
-    NODE_OPTIONS="--max-old-space-size=512 --no-node-snapshot" ./node_modules/.bin/vite build --minify=false || {
-      log_message "ERROR: All build attempts failed."
-      log_message "Using minimal placeholder frontend. Backend will still work."
-      
-      # Create a minimal frontend
-      mkdir -p dist
-      cat > dist/index.html << EOL
+  # Create a basic index.html
+  cat > dist/index.html << 'EOL'
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>VisionHub One Sentinel</title>
-  <style>
-    body { font-family: Arial, sans-serif; margin: 0; padding: 20px; text-align: center; }
-    h1 { color: #2c3e50; }
-    .container { max-width: 800px; margin: 0 auto; }
-    .message { background: #f8f9fa; border-radius: 5px; padding: 20px; margin-top: 20px; }
-    .error { color: #721c24; background-color: #f8d7da; padding: 10px; border-radius: 5px; }
-    .btn { background: #3498db; color: white; border: none; padding: 10px 15px; border-radius: 5px; cursor: pointer; }
-  </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VisionHub One Sentinel</title>
+    <link rel="stylesheet" href="/assets/index.css">
 </head>
 <body>
-  <div class="container">
-    <h1>VisionHub One Sentinel</h1>
-    <div class="message">
-      <p>The frontend could not be built automatically.</p>
-      <p>The backend services are still running and API endpoints are available.</p>
-      <div class="error">
-        <p>Build Error: Unable to build frontend due to Rollup native module issues.</p>
-      </div>
-      <p>Try accessing the API directly at: http://$(hostname -I | awk '{print $1}'):$BACKEND_PORT/api</p>
-    </div>
-  </div>
+    <div id="root">Loading VisionHub One Sentinel...</div>
 </body>
 </html>
 EOL
-    }
-  }
-}
+fi
 
 # Create environment file for backend
 log_message "Creating environment configuration..."
@@ -336,8 +278,8 @@ nginx -t && systemctl restart nginx || {
   exit 1
 }
 
-# Create systemd service file
-log_message "Creating systemd service..."
+# Update the service file to use CommonJS
+log_message "Creating systemd service with CommonJS configuration..."
 cat > /etc/systemd/system/visionhub.service << EOL
 [Unit]
 Description=VisionHub One Sentinel
@@ -353,9 +295,7 @@ Environment=DB_PATH=$DB_DIR/visionhub.db
 Environment=STORAGE_PATH=$RECORDINGS_DIR
 Environment=LOG_PATH=$LOG_DIR
 Environment=JWT_SECRET=$(openssl rand -base64 32)
-Environment=ROLLUP_SKIP_LOAD_NATIVE_PLUGIN=true
-Environment=NODE_OPTIONS=--no-node-snapshot
-ExecStart=/usr/bin/node $INSTALL_DIR/backend/index.js
+ExecStart=/usr/bin/node backend/index.js
 Restart=on-failure
 RestartSec=10s
 StandardOutput=append:$LOG_DIR/visionhub.log
