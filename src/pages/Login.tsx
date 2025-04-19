@@ -1,16 +1,17 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { useAuth } from '@/contexts/AuthContext';
-import { Camera, Shield } from 'lucide-react';
+import { Camera, Shield, AlertCircle } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
 const loginSchema = z.object({
   username: z.string().min(3, 'Username must be at least 3 characters'),
@@ -24,6 +25,8 @@ const Login: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [loginError, setLoginError] = useState<string | null>(null);
+  const [serverStatus, setServerStatus] = useState<'checking' | 'online' | 'offline'>('checking');
 
   // Get return URL from location state
   const from = location.state?.from?.pathname || '/';
@@ -36,13 +39,45 @@ const Login: React.FC = () => {
     }
   });
 
+  // Check server status when component mounts
+  useEffect(() => {
+    const checkServerStatus = async () => {
+      try {
+        const response = await fetch('/api/status', { 
+          method: 'GET',
+          headers: { 'Content-Type': 'application/json' },
+          // Short timeout to avoid hanging
+          signal: AbortSignal.timeout(5000)
+        });
+        
+        if (response.ok) {
+          setServerStatus('online');
+        } else {
+          setServerStatus('offline');
+        }
+      } catch (error) {
+        console.error("Server status check failed:", error);
+        setServerStatus('offline');
+      }
+    };
+    
+    checkServerStatus();
+  }, []);
+
   const onSubmit = async (data: LoginFormValues) => {
     setIsSubmitting(true);
+    setLoginError(null);
+    
     try {
       const success = await login(data.username, data.password);
       if (success) {
         navigate(from, { replace: true });
+      } else {
+        setLoginError("Login failed. Please check your credentials and try again.");
       }
+    } catch (error) {
+      console.error("Login submission error:", error);
+      setLoginError("An unexpected error occurred. Please try again later.");
     } finally {
       setIsSubmitting(false);
     }
@@ -64,7 +99,25 @@ const Login: React.FC = () => {
             Enter your credentials to access VisionHub Sentinel
           </CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-4">
+          {serverStatus === 'offline' && (
+            <Alert variant="destructive" className="mb-4">
+              <AlertCircle className="h-4 w-4" />
+              <AlertTitle>Server Connection Error</AlertTitle>
+              <AlertDescription>
+                Unable to connect to the server. The backend service may be down or experiencing issues.
+              </AlertDescription>
+            </Alert>
+          )}
+          
+          {loginError && (
+            <Alert variant="destructive" className="mb-4">
+              <AlertCircle className="h-4 w-4" />
+              <AlertTitle>Login Failed</AlertTitle>
+              <AlertDescription>{loginError}</AlertDescription>
+            </Alert>
+          )}
+          
           <Form {...form}>
             <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
               <FormField
@@ -109,12 +162,22 @@ const Login: React.FC = () => {
               <Button 
                 type="submit" 
                 className="w-full bg-[hsl(var(--sentinel-purple))] hover:bg-[hsl(var(--sentinel-purple))]/90" 
-                disabled={isSubmitting}
+                disabled={isSubmitting || serverStatus === 'offline'}
               >
                 {isSubmitting ? 'Signing in...' : 'Sign In'}
               </Button>
             </form>
           </Form>
+          
+          {serverStatus === 'offline' && (
+            <div className="text-sm text-muted-foreground mt-4">
+              <p className="text-center">
+                Please check if the backend service is running properly.
+                <br/>
+                You may need to restart the service.
+              </p>
+            </div>
+          )}
         </CardContent>
         <CardFooter className="flex justify-center px-8 pb-8 pt-0">
           <div className="text-sm text-muted-foreground flex items-center">

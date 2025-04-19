@@ -78,20 +78,37 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const login = async (username: string, password: string): Promise<boolean> => {
     setIsLoading(true);
     try {
+      // Add timeout for the fetch request to prevent hanging indefinitely
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+      
       const response = await fetch('/api/auth/login', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({ username, password }),
-        credentials: 'include' // Important for cookies
+        credentials: 'include', // Important for cookies
+        signal: controller.signal
       });
+      
+      clearTimeout(timeoutId);
 
       if (!response.ok) {
-        const errorData = await response.json();
+        let errorMessage = 'Invalid username or password';
+        try {
+          const errorData = await response.json();
+          if (errorData.error) {
+            errorMessage = errorData.error;
+          }
+        } catch (e) {
+          // If parsing the error response fails, use the default message
+          console.error('Error parsing error response:', e);
+        }
+        
         toast({
           title: "Login Failed",
-          description: errorData.error || "Invalid username or password",
+          description: errorMessage,
           variant: "destructive",
         });
         setIsLoading(false);
@@ -109,9 +126,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return true;
     } catch (error) {
       console.error('Login error:', error);
+      
+      // Improved error messaging based on error type
+      let errorMessage = "An unexpected error occurred";
+      if (error instanceof TypeError && error.message.includes('Failed to fetch')) {
+        errorMessage = "Server connection failed - the backend service may be down";
+      } else if (error instanceof DOMException && error.name === 'AbortError') {
+        errorMessage = "Login request timed out - the server is not responding";
+      }
+      
       toast({
         title: "Login Error",
-        description: "An unexpected error occurred",
+        description: errorMessage,
         variant: "destructive",
       });
       setIsLoading(false);
