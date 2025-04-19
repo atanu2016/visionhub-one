@@ -36,16 +36,25 @@ export default defineConfig(({ mode }) => ({
       // Avoid any plugins that might use native code
       treeshake: {
         moduleSideEffects: false,
+        propertyReadSideEffects: false,
       },
       // Disable optional plugins
       plugins: [],
+      // Use simplest output format
+      output: {
+        format: 'es',
+        chunkFileNames: 'assets/[name]-[hash].js',
+        manualChunks: undefined,
+      },
     },
     // Make the build more reliable in limited environments
     minify: false,
     target: 'es2015',
     sourcemap: false,
-    // Disable chunk splitting
+    // Disable chunk splitting for more reliable builds
     cssCodeSplit: false,
     assetsInlineLimit: 0,
+    // Maximum compatibility
+    modulePreload: false,
   },
 }));

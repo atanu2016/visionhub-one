@@ -53,11 +53,38 @@ function databaseMiddleware(dbPath) {
   db.run("PRAGMA journal_mode = WAL;"); // Write-Ahead Logging for better concurrency
   db.run("PRAGMA foreign_keys = ON;"); // Enforce foreign key constraints
   
-  // Initialize database tables
+  // Initialize database tables with additional error handling
   try {
+    console.log("Initializing database schema...");
     initializeDatabase(db);
+    
+    // Add a basic health check method to the db object
+    db.healthCheck = function(callback) {
+      this.get("SELECT 1 AS health", (err, row) => {
+        if (err) {
+          console.error("Database health check failed:", err);
+          callback(false, err);
+        } else {
+          callback(true);
+        }
+      });
+    };
+    
+    console.log("Database initialization complete");
   } catch (dbErr) {
     console.error('Database initialization error:', dbErr);
+    
+    // Attempt recovery by creating minimal required tables
+    console.log("Attempting database recovery with minimal schema...");
+    try {
+      db.serialize(() => {
+        // Create minimal tables for basic functionality
+        db.run("CREATE TABLE IF NOT EXISTS settings (id TEXT PRIMARY KEY, value TEXT)");
+        db.run("CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, username TEXT UNIQUE, password TEXT, role TEXT, email TEXT)");
+      });
+    } catch (recoveryErr) {
+      console.error("Database recovery failed:", recoveryErr);
+    }
   }
 
   return (req, res, next) => {

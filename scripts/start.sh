@@ -2,6 +2,7 @@
 #!/bin/bash
 
 # VisionHub One Sentinel Startup Script
+# Version 1.2.0 - With improved Rollup workarounds
 
 # Exit on error
 set -e
@@ -19,6 +20,7 @@ export JWT_SECRET=${JWT_SECRET:-"visionhub-sentinel-secret-key"}
 
 # CRITICAL: Set Rollup environment variables to avoid native module issues
 export ROLLUP_SKIP_LOAD_NATIVE_PLUGIN=true
+export ROLLUP_BROWSER_NODE_RESOLVE=true
 # This tells Node.js to prefer pure JS implementations
 export NODE_OPTIONS="--no-node-snapshot --no-experimental-fetch --no-warnings"
 
@@ -236,6 +238,7 @@ fi
 debug_log "Starting Node.js server with explicit flags..."
 NODE_OPTIONS="--no-node-snapshot --trace-warnings --no-warnings" \
 ROLLUP_SKIP_LOAD_NATIVE_PLUGIN=true \
+ROLLUP_BROWSER_NODE_RESOLVE=true \
 node backend/index.js 2>&1 | tee -a "$LOG_DIR/startup.log" || {
   debug_log "Failed to start server. Check logs at $LOG_DIR/startup.log"
   debug_log "Checking for known issues..."
