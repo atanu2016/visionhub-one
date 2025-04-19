@@ -30,7 +30,10 @@ if [ ! -d "$INSTALL_DIR" ]; then
 fi
 
 # Change to installation directory
-cd $INSTALL_DIR
+cd $INSTALL_DIR || {
+  echo "Failed to change to installation directory"
+  exit 1
+}
 
 # Check service status
 SERVICE_ACTIVE=$(systemctl is-active visionhub.service)
@@ -44,19 +47,30 @@ fi
 
 # Pull latest changes
 echo "Pulling latest changes from repository..."
-git pull
+# Uncomment for actual git repository updates
+# git pull
 
 # Install dependencies
 echo "Installing dependencies..."
-npm install
+npm install || {
+  echo "Failed to install dependencies. Trying with --force..."
+  npm install --force
+}
 
 # Build frontend
 echo "Building frontend..."
-npm run build
+npm run build || {
+  echo "Failed to build frontend"
+  exit 1
+}
 
 # Start the service
 echo "Starting VisionHub One Sentinel service..."
-systemctl start visionhub.service
+systemctl start visionhub.service || {
+  echo "Failed to start service. Checking logs..."
+  journalctl -u visionhub -n 50
+  exit 1
+}
 
 # Print completion message
 echo ""

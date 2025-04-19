@@ -86,6 +86,10 @@ mkdir -p "$RECORDINGS_DIR"
 mkdir -p "$LOG_DIR"
 mkdir -p "$INSTALL_DIR/ssl"
 
+# Set proper permissions early
+chmod -R 777 "$STORAGE_DIR"
+chmod -R 777 "$LOG_DIR"
+
 # Install dependencies
 echo "Updating system and installing dependencies..."
 apt-get update
@@ -119,23 +123,32 @@ apt-get install -y \
 if [ -f "./package.json" ]; then
   echo "Using local files for installation..."
   cp -r ./* "$INSTALL_DIR/"
+  cp -r ./.* "$INSTALL_DIR/" 2>/dev/null || true
 elif [ -d ".git" ]; then
   echo "Using local git repository for installation..."
   cp -r ./* "$INSTALL_DIR/"
+  cp -r ./.* "$INSTALL_DIR/" 2>/dev/null || true
 else
   echo "Cloning repository..."
   # For a real installation, you would use git clone
   # git clone $REPO_URL "$INSTALL_DIR"
   echo "NOTE: In this demo, we're using local files. In a real installation, you would clone from a git repository."
   cp -r ./* "$INSTALL_DIR/"
+  cp -r ./.* "$INSTALL_DIR/" 2>/dev/null || true
 fi
 
 # Navigate to the installation directory
-cd "$INSTALL_DIR"
+cd "$INSTALL_DIR" || { 
+  echo "Failed to change to installation directory"
+  exit 1
+}
 
 # Install npm dependencies
 echo "Installing npm dependencies..."
-npm install
+npm install || {
+  echo "Failed to install npm dependencies. Trying with --force..."
+  npm install --force
+}
 
 # Build the frontend
 echo "Building frontend..."
@@ -156,7 +169,7 @@ EOL
 echo "Setting up NGINX configuration..."
 cat > /etc/nginx/sites-available/visionhub << EOL
 server {
-    listen $FRONTEND_PORT;
+    listen $FRONTEND_PORT default_server;
     server_name _;
 
     access_log $LOG_DIR/nginx-access.log;
@@ -213,6 +226,7 @@ Environment=PORT=$BACKEND_PORT
 Environment=DB_PATH=$DB_DIR/visionhub.db
 Environment=STORAGE_PATH=$RECORDINGS_DIR
 Environment=LOG_PATH=$LOG_DIR
+Environment=JWT_SECRET=$(openssl rand -base64 32)
 ExecStart=/usr/bin/node $INSTALL_DIR/backend/index.js
 Restart=on-failure
 StandardOutput=append:$LOG_DIR/visionhub.log
@@ -226,7 +240,11 @@ EOL
 echo "Enabling and starting VisionHub service..."
 systemctl daemon-reload
 systemctl enable visionhub
-systemctl start visionhub
+systemctl start visionhub || {
+  echo "Failed to start visionhub service. Checking logs..."
+  journalctl -u visionhub -n 50
+  exit 1
+}
 
 # Set proper permissions
 echo "Setting permissions..."
@@ -234,11 +252,6 @@ chown -R root:root "$INSTALL_DIR"
 chmod -R 755 "$INSTALL_DIR"
 chmod -R 777 "$STORAGE_DIR"
 chmod -R 777 "$LOG_DIR"
-
-# Create default admin user
-echo "Ensuring default admin user exists..."
-# Note: The default admin user is already created during database initialization
-# in backend/migrations/auth.sql with username "admin" and password "Admin123!"
 
 # Generate a self-signed SSL certificate
 echo "Generating self-signed SSL certificate..."
@@ -248,7 +261,8 @@ openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
   -subj "/CN=visionhub.local"
 
 # Update the database with the SSL certificate paths
-sqlite3 "$DB_DIR/visionhub.db" "UPDATE settings SET ssl_cert_path = '/ssl/visionhub.crt', ssl_key_path = '/ssl/visionhub.key' WHERE id = '1';"
+sqlite3 "$DB_DIR/visionhub.db" "CREATE TABLE IF NOT EXISTS settings (id TEXT PRIMARY KEY, ssl_enabled INTEGER, ssl_cert_path TEXT, ssl_key_path TEXT);"
+sqlite3 "$DB_DIR/visionhub.db" "INSERT OR REPLACE INTO settings (id, ssl_enabled, ssl_cert_path, ssl_key_path) VALUES ('1', 0, '/ssl/visionhub.crt', '/ssl/visionhub.key');"
 
 # Final check and display IP information
 echo ""
