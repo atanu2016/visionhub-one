@@ -41,7 +41,14 @@ if (!fs.existsSync(dbDir)) {
     console.log(`Created database directory at ${dbDir}`);
   } catch (err) {
     console.error(`Failed to create database directory at ${dbDir}:`, err);
-    // Continue with fallback to project directory
+    // Create a fallback directory in current working directory
+    const fallbackDir = path.join(process.cwd(), 'data');
+    try {
+      fs.mkdirSync(fallbackDir, { recursive: true });
+      console.log(`Created fallback database directory at ${fallbackDir}`);
+    } catch (fbErr) {
+      console.error('Failed to create fallback directory:', fbErr);
+    }
   }
 }
 
@@ -56,7 +63,43 @@ if (fs.existsSync(distPath)) {
   app.use(express.static(distPath));
   console.log(`Serving static files from ${distPath}`);
 } else {
-  console.error(`Warning: Static directory ${distPath} does not exist`);
+  console.warn(`Static directory ${distPath} not found - creating minimal placeholder`);
+  try {
+    fs.mkdirSync(distPath, { recursive: true });
+    
+    // Create a minimal index.html for API-only mode
+    const indexHtml = `<!DOCTYPE html>
+      <html lang="en">
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>VisionHub One Sentinel API</title>
+        <style>
+          body { font-family: sans-serif; text-align: center; margin: 50px; }
+          .container { max-width: 800px; margin: 0 auto; }
+          .status { padding: 15px; margin: 20px 0; border-radius: 5px; }
+          .ok { background-color: #d4edda; color: #155724; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <h1>VisionHub One Sentinel</h1>
+          <p>Backend API is running.</p>
+          <div class="status ok">
+            <strong>API Status:</strong> Online
+          </div>
+          <p>API endpoints available at /api/*</p>
+        </div>
+      </body>
+      </html>`;
+    
+    fs.writeFileSync(path.join(distPath, 'index.html'), indexHtml);
+    console.log('Created minimal index.html placeholder');
+    
+    app.use(express.static(distPath));
+  } catch (e) {
+    console.error('Failed to create minimal frontend placeholder:', e);
+  }
 }
 
 // Ensure other directories exist or create them
@@ -70,7 +113,7 @@ if (!fs.existsSync(backupsDir)) {
   }
 }
 
-const recordingsDir = path.join(__dirname, '../recordings');
+const recordingsDir = process.env.STORAGE_PATH || path.join(__dirname, '../recordings');
 if (!fs.existsSync(recordingsDir)) {
   try {
     fs.mkdirSync(recordingsDir, { recursive: true });
@@ -99,8 +142,19 @@ async function initializeServer() {
     
     // Initialize database tables first
     const db = app.get('db');
+    
+    if (!db) {
+      throw new Error('Database connection failed. Check permissions and path: ' + DB_PATH);
+    }
+    
     console.log('Initializing database tables...');
-    initializeDatabase(db);
+    try {
+      initializeDatabase(db);
+      console.log('Database tables initialized successfully');
+    } catch (dbErr) {
+      console.error('Error initializing database tables:', dbErr);
+      console.log('Will attempt to continue startup despite database initialization error');
+    }
     
     // Check if SSL is enabled
     let settings;
@@ -122,11 +176,23 @@ async function initializeServer() {
     }
     
     // Check if SSL is enabled and certificates exist
-    if (settings.ssl_enabled && settings.ssl_cert_path && settings.ssl_key_path) {
+    if (settings && settings.ssl_enabled && settings.ssl_cert_path && settings.ssl_key_path) {
       try {
         // Resolve paths (SSL paths are stored as /ssl/file.crt, but actual path is relative to project root)
-        const certPath = path.join(__dirname, '..', settings.ssl_cert_path);
-        const keyPath = path.join(__dirname, '..', settings.ssl_key_path);
+        let certPath, keyPath;
+        
+        // Handle both absolute and relative paths
+        if (settings.ssl_cert_path.startsWith('/')) {
+          certPath = path.join(__dirname, '..', settings.ssl_cert_path);
+        } else {
+          certPath = settings.ssl_cert_path;
+        }
+        
+        if (settings.ssl_key_path.startsWith('/')) {
+          keyPath = path.join(__dirname, '..', settings.ssl_key_path);
+        } else {
+          keyPath = settings.ssl_key_path;
+        }
         
         console.log(`Loading SSL certificates from: ${certPath} and ${keyPath}`);
         
@@ -158,8 +224,10 @@ async function initializeServer() {
     try {
       console.log('Initializing WebSocket server...');
       initWebSocketServer(server);
+      console.log('WebSocket server initialized');
     } catch (err) {
       console.error('Failed to initialize WebSocket server:', err);
+      console.log('Continuing without WebSocket support');
     }
 
     // Initialize storage
@@ -169,6 +237,7 @@ async function initializeServer() {
       console.log(`Storage initialized at: ${storagePath}`);
     } catch (err) {
       console.error('Storage initialization error:', err);
+      console.log('Continuing with default storage settings');
     }
 
     // API Routes
@@ -190,12 +259,24 @@ async function initializeServer() {
       }
     });
     
+    // Special API status check endpoint for health monitoring
+    app.get('/api/status', (req, res) => {
+      res.json({
+        status: 'online',
+        timestamp: new Date().toISOString(),
+        version: '1.2.1',
+        message: 'VisionHub One Sentinel API is operational'
+      });
+    });
+    
     // Start camera monitoring
     try {
       console.log('Starting camera monitoring...');
       const monitoringInterval = startMonitoring(app.get('db'));
+      console.log('Camera monitoring started');
     } catch (err) {
       console.error('Failed to start camera monitoring:', err);
+      console.log('Continuing without camera monitoring');
     }
 
     // Catch-all route for SPA
@@ -205,7 +286,16 @@ async function initializeServer() {
         res.sendFile(indexPath);
       } else {
         console.error(`Error: index.html not found at ${indexPath}`);
-        res.status(500).send('Server Error: index.html not found');
+        res.status(200).send(`
+          <html>
+            <head><title>VisionHub One Sentinel</title></head>
+            <body>
+              <h1>VisionHub One Sentinel</h1>
+              <p>API server is running, but the frontend is not available.</p>
+              <p>API endpoints are available at /api/*</p>
+            </body>
+          </html>
+        `);
       }
     });
 
