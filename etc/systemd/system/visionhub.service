@@ -1,0 +1,24 @@
+
+[Unit]
+Description=VisionHub One Sentinel
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/visionhub-sentinel
+Environment=NODE_ENV=production
+Environment=PORT=3000
+Environment=DB_PATH=/var/visionhub/db/visionhub.db
+Environment=STORAGE_PATH=/var/visionhub/recordings
+Environment=LOG_PATH=/var/log/visionhub
+# Force CommonJS module system
+Environment=NODE_OPTIONS="--no-warnings --experimental-modules"
+ExecStart=/usr/bin/node /opt/visionhub-sentinel/backend/index.js
+Restart=on-failure
+RestartSec=10s
+StandardOutput=append:/var/log/visionhub/visionhub.log
+StandardError=append:/var/log/visionhub/visionhub-error.log
+
+[Install]
+WantedBy=multi-user.target

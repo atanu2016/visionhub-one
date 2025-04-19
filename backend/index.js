@@ -1,5 +1,5 @@
 
-// Use CommonJS syntax for backend code
+// Use CommonJS syntax for backend code - explicitly marked as CommonJS
 const express = require('express');
 const path = require('path');
 const bodyParser = require('body-parser');
