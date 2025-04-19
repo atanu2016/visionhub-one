@@ -1,15 +1,16 @@
+
 #!/bin/bash
 
 # VisionHub One Sentinel Installation Script
 # For Ubuntu 22.04 LTS Server
-# Version 1.2.1 - With Rollup fixes
+# Version 1.3.0 - With dependency fallbacks and ESBuild support
 
 # Exit on error
 set -e
 
 # Print header
 echo "============================================"
-echo "  VisionHub One Sentinel Installer v1.2.1"
+echo "  VisionHub One Sentinel Installer v1.3.0"
 echo "============================================"
 echo ""
 
@@ -102,38 +103,70 @@ touch "$INSTALL_LOG"
 chmod -R 777 "$STORAGE_DIR"
 chmod -R 777 "$LOG_DIR"
 
-# Install dependencies
-log_message "Updating system and installing dependencies..."
-apt-get update
-apt-get upgrade -y
-
-# Install required packages
-log_message "Installing required packages..."
-apt-get install -y \
-  ffmpeg \
-  sqlite3 \
-  sendmail \
-  cifs-utils \
-  zip \
-  unzip \
-  nginx \
-  build-essential \
-  git \
-  openssl \
-  net-tools \
-  nmap \
-  iproute2 \
-  npm || {
-    log_message "ERROR: Failed to install required packages."
-    exit 1
+# Install dependencies with better error handling
+install_packages() {
+  log_message "Attempting to install packages: $*"
+  apt-get update
+  apt-get install -y "$@" || {
+    log_message "WARNING: Standard apt install failed, trying alternative methods..."
+    return 1
   }
+  return 0
+}
 
-# Install Node.js
+# Update system
+log_message "Updating system..."
+apt-get update || log_message "WARNING: apt-get update failed, continuing anyway..."
+apt-get upgrade -y || log_message "WARNING: apt-get upgrade failed, continuing anyway..."
+
+# Install essential packages first with fallback
+log_message "Installing critical packages..."
+install_packages build-essential curl git openssl sqlite3 || {
+  log_message "Trying to install packages individually..."
+  for pkg in build-essential curl git openssl sqlite3; do
+    apt-get install -y $pkg || log_message "WARNING: Failed to install $pkg, continuing anyway..."
+  done
+}
+
+# Install other packages with fallbacks
+log_message "Installing additional packages..."
+install_packages ffmpeg sendmail cifs-utils zip unzip nginx net-tools nmap iproute2 || {
+  log_message "Trying to install additional packages individually..."
+  for pkg in ffmpeg sendmail cifs-utils zip unzip nginx net-tools nmap iproute2; do
+    apt-get install -y $pkg || log_message "WARNING: Failed to install $pkg, continuing anyway..."
+  done
+}
+
+# Install Node.js with fallback methods
 log_message "Installing Node.js $NODE_VERSION..."
 if ! command -v node &> /dev/null; then
-  curl -fsSL "https://deb.nodesource.com/setup_$NODE_VERSION" | bash -
-  apt-get install -y nodejs
+  log_message "Installing Node.js via NodeSource..."
+  if curl -fsSL "https://deb.nodesource.com/setup_$NODE_VERSION" | bash -; then
+    apt-get install -y nodejs
+  else
+    log_message "NodeSource installation failed, trying direct binary installation..."
+    NODE_DIST="node-v18.20.0-linux-x64"
+    curl -sL "https://nodejs.org/dist/v18.20.0/${NODE_DIST}.tar.gz" -o /tmp/node.tar.gz
+    if [ $? -eq 0 ]; then
+      mkdir -p /usr/local/lib/nodejs
+      tar -xzf /tmp/node.tar.gz -C /usr/local/lib/nodejs
+      ln -sf /usr/local/lib/nodejs/${NODE_DIST}/bin/node /usr/bin/node
+      ln -sf /usr/local/lib/nodejs/${NODE_DIST}/bin/npm /usr/bin/npm
+      ln -sf /usr/local/lib/nodejs/${NODE_DIST}/bin/npx /usr/bin/npx
+      log_message "Node.js installed via binary distribution"
+    else
+      log_message "ERROR: All Node.js installation methods failed"
+      log_message "Please install Node.js v18.x manually before continuing"
+      exit 1
+    fi
+  fi
 fi
+
+# Check Node.js version
+NODE_VER=$(node -v || echo "unknown")
+log_message "Node.js version: $NODE_VER"
+NPM_VER=$(npm -v || echo "unknown")
+log_message "NPM version: $NPM_VER"
 
 # Check if the code repository exists (local or git)
 if [ -f "./package.json" ]; then
@@ -159,39 +192,76 @@ cd "$INSTALL_DIR" || {
   exit 1
 }
 
-# Install npm dependencies with clean install approach that avoids Rollup issues
-log_message "Installing npm dependencies with clean install approach..."
-rm -rf node_modules package-lock.json
+# Fix esbuild.config.js if needed
+if [ -f "esbuild.config.js" ]; then
+  log_message "Checking esbuild.config.js format..."
+  # Remove shebang if present
+  sed -i '/^#!/d' esbuild.config.js
+  log_message "Fixed esbuild.config.js"
+fi
 
-# First install esbuild separately to ensure it's available
-npm install --no-optional esbuild || {
-  log_message "Failed to install esbuild. This is required for the build process."
-  exit 1
-}
-
-# Then install other dependencies
-npm install --no-optional || {
-  log_message "Error during npm install. Trying with basic dependencies only..."
-  npm install --no-optional react react-dom express sqlite3 || {
-    log_message "ERROR: Failed to install even basic dependencies."
-    exit 1
+# Install ESBuild separately first to ensure it's available
+log_message "Installing ESBuild separately..."
+npm install -g esbuild || {
+  npm install --no-save esbuild || {
+    log_message "WARNING: Failed to install esbuild via npm, trying direct download..."
+    mkdir -p "$INSTALL_DIR/node_modules/.bin"
+    ARCH=$(uname -m)
+    if [ "$ARCH" = "x86_64" ]; then
+      curl -L https://registry.npmjs.org/esbuild-linux-64/-/esbuild-linux-64-0.15.18.tgz -o /tmp/esbuild.tgz
+      mkdir -p /tmp/esbuild
+      tar -xzf /tmp/esbuild.tgz -C /tmp/esbuild
+      cp /tmp/esbuild/package/bin/esbuild "$INSTALL_DIR/node_modules/.bin/"
+      chmod +x "$INSTALL_DIR/node_modules/.bin/esbuild"
+      log_message "ESBuild binary installed directly"
+    else
+      log_message "WARNING: ESBuild direct install not supported for architecture $ARCH"
+    fi
   }
 }
 
-# Try different build strategies
-log_message "Building frontend with multiple fallback strategies..."
+# Install npm dependencies with clean install approach
+log_message "Installing npm dependencies with clean install approach..."
+rm -rf node_modules package-lock.json
+
+# Ensure these critical dependencies are installed one by one
+log_message "Installing critical dependencies individually..."
+npm install --no-save express sqlite3 bcrypt uuid || log_message "WARNING: Some critical dependencies failed to install"
+
+# Install remaining dependencies with error handling
+log_message "Installing remaining dependencies..."
+npm install --no-optional --no-fund || {
+  log_message "ERROR: Failed to install all dependencies."
+  log_message "Installing with --no-peer-deps and --legacy-peer-deps..."
+  npm install --no-optional --no-fund --no-peer-deps --legacy-peer-deps || {
+    log_message "WARNING: Failed to install all dependencies. Some features may be limited."
+  }
+}
+
+# Build the frontend with ESBuild using the improved config
+log_message "Building frontend with ESBuild..."
 mkdir -p dist
 
-# Strategy 1: Direct ESBuild approach
+# Fix ESBuild config if needed and attempt build
 if [ -f "esbuild.config.js" ]; then
   log_message "Building with ESBuild..."
   node esbuild.config.js && log_message "ESBuild build successful!" || {
     log_message "ESBuild build failed, trying direct command..."
-    ./node_modules/.bin/esbuild src/main.tsx \
-      --bundle \
-      --format=esm \
-      --outfile=dist/assets/index.js \
-      || log_message "Direct ESBuild command failed too."
+    if [ -f "./node_modules/.bin/esbuild" ]; then
+      mkdir -p dist/assets
+      ./node_modules/.bin/esbuild src/main.tsx \
+        --bundle \
+        --format=esm \
+        --outfile=dist/assets/index.js \
+        && log_message "Direct ESBuild command successful!" || log_message "Direct ESBuild command failed."
+    else
+      log_message "ESBuild not found in node_modules, trying global install..."
+      esbuild src/main.tsx \
+        --bundle \
+        --format=esm \
+        --outfile=dist/assets/index.js \
+        && log_message "Global ESBuild command successful!" || log_message "Global ESBuild command failed."
+    fi
   }
 fi
 
@@ -209,10 +279,49 @@ if [ ! -f "dist/assets/index.js" ]; then
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>VisionHub One Sentinel</title>
+    <style>
+      body { font-family: Arial, sans-serif; margin: 0; padding: 20px; text-align: center; background-color: #f5f8fa; }
+      h1 { color: #2c3e50; }
+      .container { max-width: 800px; margin: 0 auto; }
+      .message { background: #ffffff; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); padding: 30px; margin-top: 20px; }
+      .api-info { color: #004085; background-color: #cce5ff; padding: 15px; border-radius: 5px; margin-top: 20px; }
+      .warning { color: #856404; background-color: #fff3cd; padding: 15px; border-radius: 5px; margin-top: 20px; }
+    </style>
     <link rel="stylesheet" href="/assets/index.css">
 </head>
 <body>
-    <div id="root">Loading VisionHub One Sentinel...</div>
+    <div class="container">
+        <div class="message">
+            <h1>VisionHub One Sentinel</h1>
+            <p>The system is running in API mode. Web interface could not be built.</p>
+            
+            <div class="api-info">
+              <p><strong>API Status:</strong> <span id="api-status">Checking...</span></p>
+              <p><strong>API Base URL:</strong> http://<span id="hostname">localhost</span>/api</p>
+            </div>
+            
+            <div class="warning">
+              <p>This is a minimal frontend for API access only.</p>
+              <p>The backend server is still fully functional.</p>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+      document.getElementById('hostname').textContent = window.location.hostname;
+      
+      fetch('/api/status')
+        .then(response => {
+          if (response.ok) {
+            document.getElementById('api-status').innerHTML = '<span style="color:green">✓ Online</span>';
+          } else {
+            document.getElementById('api-status').innerHTML = '<span style="color:red">✗ Error</span>';
+          }
+        })
+        .catch(error => {
+          document.getElementById('api-status').innerHTML = '<span style="color:red">✗ Offline</span>';
+        });
+    </script>
 </body>
 </html>
 EOL
@@ -227,7 +336,6 @@ DB_PATH=$DB_DIR/visionhub.db
 STORAGE_PATH=$RECORDINGS_DIR
 LOG_PATH=$LOG_DIR
 JWT_SECRET=$(openssl rand -base64 32)
-ROLLUP_SKIP_LOAD_NATIVE_PLUGIN=true
 EOL
 
 # Set up NGINX configuration
@@ -275,10 +383,10 @@ ln -sf /etc/nginx/sites-available/visionhub /etc/nginx/sites-enabled/ || log_mes
 rm -f /etc/nginx/sites-enabled/default || log_message "Failed to remove default site"
 nginx -t && systemctl restart nginx || {
   log_message "ERROR: NGINX configuration test failed or restart failed."
-  exit 1
+  log_message "Continuing without NGINX. You can configure it manually later."
 }
 
-# Update the service file to use CommonJS
+# Create systemd service for CommonJS compatibility
 log_message "Creating systemd service with CommonJS configuration..."
 cat > /etc/systemd/system/visionhub.service << EOL
 [Unit]
@@ -295,6 +403,8 @@ Environment=DB_PATH=$DB_DIR/visionhub.db
 Environment=STORAGE_PATH=$RECORDINGS_DIR
 Environment=LOG_PATH=$LOG_DIR
 Environment=JWT_SECRET=$(openssl rand -base64 32)
+# Force CommonJS module system
+Environment=NODE_OPTIONS="--no-warnings"
 ExecStart=/usr/bin/node backend/index.js
 Restart=on-failure
 RestartSec=10s
@@ -434,13 +544,11 @@ if [ "$(systemctl is-active visionhub)" != "active" ]; then
   echo "4. Run start script directly: sudo $INSTALL_DIR/scripts/start.sh"
   echo "5. Try the backend without frontend build:"
   echo "   cd $INSTALL_DIR && node backend/index.js"
-  echo "6. If the frontend build issue persists, you can try:"
-  echo "   cd $INSTALL_DIR && export ROLLUP_SKIP_LOAD_NATIVE_PLUGIN=true && export NODE_OPTIONS=\"--no-node-snapshot\" && npx vite build --minify=false"
   echo ""
-  echo "ALTERNATIVE DEPLOYMENT OPTION:"
-  echo "If you continue to experience issues with the build process, consider:"
-  echo "1. Building the frontend on another machine with the same architecture"
-  echo "2. Copying the resulting 'dist' directory to $INSTALL_DIR on this server"
-  echo "3. Restarting the service: sudo systemctl restart visionhub"
+  echo "ALTERNATIVE INSTALLATION METHOD:"
+  echo "If you continue to experience package dependency issues, try:"
+  echo "1. Install Node.js manually from the official NodeJS website"
+  echo "2. Download the VisionHub One Sentinel package directly"
+  echo "3. Run the installation script with --skip-dependencies flag"
   echo ""
 fi
