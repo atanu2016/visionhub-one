@@ -62,13 +62,22 @@ cd $PROJECT_ROOT || { echo "Failed to change to project directory"; exit 1; }
 # Check if the node_modules directory exists
 if [ ! -d "node_modules" ]; then
   echo "Installing dependencies..."
-  npm install --no-optional || { echo "Failed to install dependencies"; exit 1; }
+  # Use --force and --no-optional to avoid the Rollup optional dependency issue
+  npm install --no-optional --force || { echo "Failed to install dependencies"; exit 1; }
 fi
 
 # Check if the dist directory exists
 if [ ! -d "dist" ]; then
   echo "Building frontend..."
-  npm run build || { echo "Failed to build frontend"; exit 1; }
+  # Set environment variable to skip optional Rollup dependencies
+  export ROLLUP_SKIP_LOAD_NATIVE_PLUGIN=true
+  npm run build || { 
+    echo "Failed to build frontend with npm run build, trying with direct Vite command..."
+    ./node_modules/.bin/vite build || {
+      echo "Failed to build frontend. Check logs at $LOG_DIR/startup.log"
+      exit 1
+    }
+  }
 fi
 
 # Create a temporary success file to track successful starts

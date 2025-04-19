@@ -76,10 +76,12 @@ log_message "Pulling latest changes from repository..."
 # Uncomment for actual git repository updates
 # git pull
 
-# Install dependencies
+# Install dependencies with fixes for rollup
 log_message "Installing dependencies..."
-npm install --no-optional || {
-  log_message "Failed to install dependencies. Trying with --force..."
+export ROLLUP_SKIP_LOAD_NATIVE_PLUGIN=true
+npm install --no-optional --force || {
+  log_message "Failed to install dependencies. Trying with clean reinstall..."
+  rm -rf node_modules package-lock.json
   npm install --no-optional --force || {
     log_message "ERROR: Failed to install dependencies even with --force."
     log_message "Attempting to restore from backup and restart service..."
@@ -92,22 +94,26 @@ npm install --no-optional || {
 
 # Build frontend
 log_message "Building frontend..."
+export ROLLUP_SKIP_LOAD_NATIVE_PLUGIN=true
 npm run build || {
-  log_message "Failed to build frontend. Attempting to restore from backup..."
-  log_message "Restoring node_modules from backup..."
-  rm -rf "$INSTALL_DIR/node_modules"
-  cp -r "$BACKUP_DIR/node_modules" "$INSTALL_DIR/" || log_message "WARNING: Could not restore node_modules"
-  
-  log_message "Restoring dist from backup..."
-  rm -rf "$INSTALL_DIR/dist"
-  cp -r "$BACKUP_DIR/dist" "$INSTALL_DIR/" || log_message "WARNING: Could not restore dist"
-  
-  if [ "$SERVICE_ACTIVE" = "active" ]; then
-    log_message "Restarting service..."
-    systemctl start visionhub.service
-  fi
-  
-  exit 1
+  log_message "Failed with npm run build, trying direct vite command..."
+  ./node_modules/.bin/vite build || {
+    log_message "Failed to build frontend. Attempting to restore from backup..."
+    log_message "Restoring node_modules from backup..."
+    rm -rf "$INSTALL_DIR/node_modules"
+    cp -r "$BACKUP_DIR/node_modules" "$INSTALL_DIR/" || log_message "WARNING: Could not restore node_modules"
+    
+    log_message "Restoring dist from backup..."
+    rm -rf "$INSTALL_DIR/dist"
+    cp -r "$BACKUP_DIR/dist" "$INSTALL_DIR/" || log_message "WARNING: Could not restore dist"
+    
+    if [ "$SERVICE_ACTIVE" = "active" ]; then
+      log_message "Restarting service..."
+      systemctl start visionhub.service
+    fi
+    
+    exit 1
+  }
 }
 
 # Start the service
@@ -181,5 +187,7 @@ if [ "$(systemctl is-active visionhub)" != "active" ]; then
   echo "1. Check logs: sudo journalctl -u visionhub -f"
   echo "2. Try restarting: sudo systemctl restart visionhub"
   echo "3. Run start script directly: sudo $INSTALL_DIR/scripts/start.sh"
+  echo "4. If frontend build issues persist, try manually rebuilding with:"
+  echo "   cd $INSTALL_DIR && export ROLLUP_SKIP_LOAD_NATIVE_PLUGIN=true && ./node_modules/.bin/vite build"
   echo ""
 fi

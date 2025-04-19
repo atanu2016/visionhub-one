@@ -159,21 +159,35 @@ cd "$INSTALL_DIR" || {
   exit 1
 }
 
-# Install npm dependencies
+# Install npm dependencies - avoiding rollup issues by setting flag and using --no-optional
 log_message "Installing npm dependencies..."
-npm install --no-optional || {
-  log_message "Failed to install npm dependencies. Trying with --force..."
+export ROLLUP_SKIP_LOAD_NATIVE_PLUGIN=true
+npm install --no-optional --force || {
+  log_message "Error during npm install. Removing package-lock.json and node_modules and trying again..."
+  rm -rf node_modules package-lock.json
   npm install --no-optional --force || {
     log_message "ERROR: Failed to install npm dependencies even with --force. Check packages."
     exit 1
   }
 }
 
-# Build the frontend
+# Update vite.config.ts to prevent rollup optional dependency issue
+log_message "Updating vite.config.ts to fix rollup issue..."
+if [ -f "$INSTALL_DIR/vite.config.ts" ]; then
+  sed -i 's/import { defineConfig } from "vite";/import { defineConfig } from "vite";\nprocess.env.ROLLUP_SKIP_LOAD_NATIVE_PLUGIN = "true";/' "$INSTALL_DIR/vite.config.ts"
+fi
+
+# Build the frontend with fix for rollup issue
 log_message "Building frontend..."
+export ROLLUP_SKIP_LOAD_NATIVE_PLUGIN=true
 npm run build || {
-  log_message "ERROR: Failed to build frontend."
-  exit 1
+  log_message "Failed with npm run build, trying with direct vite command..."
+  ./node_modules/.bin/vite build || {
+    log_message "ERROR: Failed to build frontend. Error log follows:"
+    npm run build --verbose >> "$INSTALL_LOG" 2>&1
+    log_message "See $INSTALL_LOG for full build error details."
+    exit 1
+  }
 }
 
 # Create environment file for backend
@@ -185,6 +199,7 @@ DB_PATH=$DB_DIR/visionhub.db
 STORAGE_PATH=$RECORDINGS_DIR
 LOG_PATH=$LOG_DIR
 JWT_SECRET=$(openssl rand -base64 32)
+ROLLUP_SKIP_LOAD_NATIVE_PLUGIN=true
 EOL
 
 # Set up NGINX configuration
@@ -252,6 +267,7 @@ Environment=DB_PATH=$DB_DIR/visionhub.db
 Environment=STORAGE_PATH=$RECORDINGS_DIR
 Environment=LOG_PATH=$LOG_DIR
 Environment=JWT_SECRET=$(openssl rand -base64 32)
+Environment=ROLLUP_SKIP_LOAD_NATIVE_PLUGIN=true
 ExecStart=/usr/bin/node $INSTALL_DIR/backend/index.js
 Restart=on-failure
 RestartSec=10s
@@ -378,6 +394,8 @@ if [ "$(systemctl is-active visionhub)" != "active" ]; then
   echo "2. Try restarting: sudo systemctl restart visionhub"
   echo "3. Check permissions on $DB_DIR and $LOG_DIR"
   echo "4. Run start script directly: sudo $INSTALL_DIR/scripts/start.sh"
+  echo "5. If frontend build issues persist, try manually rebuilding with:"
+  echo "   cd $INSTALL_DIR && export ROLLUP_SKIP_LOAD_NATIVE_PLUGIN=true && ./node_modules/.bin/vite build"
   echo ""
 fi
 
