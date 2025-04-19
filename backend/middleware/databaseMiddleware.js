@@ -49,6 +49,10 @@ function databaseMiddleware(dbPath) {
     });
   }
   
+  // Set PRAGMA for better reliability
+  db.run("PRAGMA journal_mode = WAL;"); // Write-Ahead Logging for better concurrency
+  db.run("PRAGMA foreign_keys = ON;"); // Enforce foreign key constraints
+  
   // Initialize database tables
   try {
     initializeDatabase(db);

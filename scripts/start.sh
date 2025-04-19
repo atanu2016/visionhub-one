@@ -20,7 +20,7 @@ export JWT_SECRET=${JWT_SECRET:-"visionhub-sentinel-secret-key"}
 # CRITICAL: Set Rollup environment variables to avoid native module issues
 export ROLLUP_SKIP_LOAD_NATIVE_PLUGIN=true
 # This tells Node.js to prefer pure JS implementations
-export NODE_OPTIONS="--no-node-snapshot --no-experimental-fetch"
+export NODE_OPTIONS="--no-node-snapshot --no-experimental-fetch --no-warnings"
 
 # Get the directory where the script is located
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
@@ -107,16 +107,17 @@ if [ ! -d "dist" ]; then
     button { background: #4299e1; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; margin-top: 10px; }
     button:hover { background: #3182ce; }
     .error { color: #e53e3e; margin-top: 10px; }
+    .logo { font-size: 24px; font-weight: bold; margin-bottom: 20px; color: #4a5568; }
+    .logo span { color: #4299e1; }
   </style>
 </head>
 <body>
   <div class="container">
-    <h1>VisionHub One Sentinel</h1>
-    <p>Backend API Server Mode</p>
+    <div class="logo">Vision<span>Hub</span> One Sentinel</div>
     
     <div class="message">
-      <p>The VisionHub One Sentinel backend service is running in API-only mode.</p>
-      <p>The full web interface could not be built, but all API endpoints are available.</p>
+      <h1>Welcome to VisionHub One Sentinel</h1>
+      <p>Backend API Server Mode</p>
       
       <div class="api-info">
         <p><strong>API Status:</strong> <span id="api-status">Checking...</span></p>
@@ -133,16 +134,14 @@ if [ ! -d "dist" ]; then
             <input type="password" id="password" placeholder="Password" value="Admin123!" />
           </div>
           <button type="submit">Login</button>
-          <div id="login-error" class="error"></div>
+          <div id="login-message" class="error"></div>
         </form>
+        <div id="login-success" style="display:none; color:green; margin-top:10px;"></div>
       </div>
       
       <div class="warning">
-        <p>To restore the full web interface, either:</p>
-        <ol style="text-align: left;">
-          <li>Build the frontend on a compatible system and copy the dist folder here</li>
-          <li>Run: <code>cd /opt/visionhub-sentinel && npm run build</code> with appropriate environment variables</li>
-        </ol>
+        <p>This is a minimal frontend for API access only.</p>
+        <p>The full web interface could not be built, but all API endpoints are available.</p>
       </div>
     </div>
   </div>
@@ -175,9 +174,12 @@ if [ ! -d "dist" ]; then
       e.preventDefault();
       const username = document.getElementById('username').value;
       const password = document.getElementById('password').value;
-      const loginError = document.getElementById('login-error');
+      const loginMessage = document.getElementById('login-message');
+      const loginSuccess = document.getElementById('login-success');
+      const loginForm = document.getElementById('login-form');
       
-      loginError.textContent = '';
+      loginMessage.textContent = '';
+      loginSuccess.style.display = 'none';
       
       fetch('/api/auth/login', {
         method: 'POST',
@@ -194,11 +196,19 @@ if [ ! -d "dist" ]; then
         }
       })
       .then(data => {
-        loginError.textContent = '';
-        alert('Login successful! Token: ' + data.token.substring(0, 10) + '...');
+        loginMessage.textContent = '';
+        loginSuccess.textContent = 'Login successful! You are now authenticated.';
+        loginSuccess.style.display = 'block';
+        loginForm.reset();
+        
+        // Store token in localStorage
+        localStorage.setItem('visionhub_token', data.token);
+        
+        // Show token information
+        loginSuccess.innerHTML += '<br><small>Token received and stored for API access.</small>';
       })
       .catch(error => {
-        loginError.textContent = error.message || 'Failed to login';
+        loginMessage.textContent = error.message || 'Failed to login';
       });
     });
   </script>
@@ -224,7 +234,7 @@ fi
 
 # More robust server start with explicit node flags
 debug_log "Starting Node.js server with explicit flags..."
-NODE_OPTIONS="--no-node-snapshot --trace-warnings" \
+NODE_OPTIONS="--no-node-snapshot --trace-warnings --no-warnings" \
 ROLLUP_SKIP_LOAD_NATIVE_PLUGIN=true \
 node backend/index.js 2>&1 | tee -a "$LOG_DIR/startup.log" || {
   debug_log "Failed to start server. Check logs at $LOG_DIR/startup.log"
